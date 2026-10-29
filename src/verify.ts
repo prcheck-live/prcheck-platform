@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { config, path, RepoConfig } from './config';
@@ -17,6 +17,7 @@ export async function runVerifiers(repo: RepoConfig, assessmentId: string, sha: 
     // then collect the "qivvra-evidence-<assessment>" artifact. Not wired in this MVP build.
     throw new Error('github-dispatch verifier adapter is not wired in this build; use local-playwright');
   }
+  if (repo.verifiers.pull) execFileSync('git', ['-C', path(repo.verifiers.path!), 'pull', '--ff-only', '-q'], { stdio: 'ignore' });
   const outDir = join(config.root, 'data', 'runs', assessmentId);
   mkdirSync(outDir, { recursive: true });
   const env = {

@@ -7,7 +7,7 @@ import { commentMarkdown, publish } from './report';
 import { changedFiles, jiraKeyFrom } from './sources/github';
 import { fetchIssue } from './sources/jira';
 import { selectPolicies } from './sources/policies';
-import { teamResults } from './sources/xray';
+import { teamResults, waitForTeamResults } from './sources/xray';
 import { runVerifiers } from './verify';
 
 export interface AssessmentRequest {
@@ -37,40 +37,46 @@ export async function createAssessment(req: AssessmentRequest): Promise<string> 
 export async function runAssessment(id: string, req: AssessmentRequest) {
   const { repo, headSha: sha } = req;
   try {
-    // 1. Gather: GitHub, Jira, Xray and the policy repo, linked by the Jira key
+    // GitHub statuses need the full commit hash; /version, verifiers and team results use the short one.
+    const short = sha.slice(0, 7);
+
+    // 1. Gather: GitHub, Jira and the policy repo, linked by the Jira key
     await status(id, 'gathering');
     const jiraKey = jiraKeyFrom(repo.jira_project, req.title, req.headRef);
     const files = await changedFiles(repo, req.baseRef, sha);
     await event(id, 'gather', `${files.files.length} changed files from ${files.source}`);
     const jira = jiraKey ? await fetchIssue(repo, jiraKey) : null;
     await event(id, 'gather', jira ? `${jira.key} "${jira.summary}" (${jira.status}, ${jira.acceptanceCriteria.length} ACs)` : `No Jira issue for ${jiraKey ?? 'this PR'}`);
-    const team = await teamResults(repo, sha, repo.jira_project);
-    await event(id, 'gather', team ? `Team tests: ${team.passed}/${team.total} passed (${team.source})` : 'No team test results for this commit');
     const snapshot = selectPolicies(repo, files.files, jiraKey);
     const obligationCount = snapshot.policies.reduce((n, p) => n + p.obligations.length, 0);
     await event(id, 'gather', `${snapshot.policies.length} policies, ${obligationCount} obligations selected (policy repo ${snapshot.policyRepoCommit})`,
       { policies: snapshot.policies.map((p) => `${p.id}@${p.version}`) });
 
-    // 2. Freeze the context. Everything later is judged against exactly this.
+    // 2. Environment: QE must be running this exact commit (the deploy usually finishes after the webhook)
+    await status(id, 'awaiting_environment');
+    const env = await waitForCommit(repo.environment.base_url, short, repo.environment.wait_for_commit_seconds);
+    await event(id, 'environment', env.confirmed ? `${repo.environment.name} runs ${short}` : `${repo.environment.name} did not report ${short}`, { observed: env.observed });
+
+    // 3. The team's own results for this commit (Xray input). Waiting here also keeps QIVVRA's
+    //    verifiers from running against QE while the team's suite is still using it.
+    const team = env.confirmed ? await waitForTeamResults(repo, short) : await teamResults(repo, short, repo.jira_project);
+    await event(id, 'gather', team ? `Team tests: ${team.passed}/${team.total} passed (${team.source})` : 'No team test results for this commit');
+
+    // 4. Freeze the context. Everything later is judged against exactly this.
     const context = {
       kind: 'qivvra.context/v1', assessmentId: id, repository: repo.github, prNumber: req.prNumber, headSha: sha,
       baseRef: req.baseRef, headRef: req.headRef ?? null, title: req.title ?? null,
-      changedFiles: files, jira, teamResults: team, policySnapshot: snapshot, frozenAt: new Date().toISOString(),
+      changedFiles: files, jira, teamResults: team, policySnapshot: snapshot, environment: env, frozenAt: new Date().toISOString(),
     };
     const contextDigest = await put('context', JSON.stringify(context, null, 2));
     await pool.query('UPDATE assessments SET jira_key = $1, context_digest = $2 WHERE id = $3', [jiraKey, contextDigest, id]);
     await event(id, 'freeze', `Context frozen ${contextDigest.slice(0, 19)}…`);
 
-    // 3. Environment: QE must be running this exact commit
-    await status(id, 'awaiting_environment');
-    const env = await waitForCommit(repo.environment.base_url, sha, repo.environment.wait_for_commit_seconds);
-    await event(id, 'environment', env.confirmed ? `${repo.environment.name} runs ${sha}` : `${repo.environment.name} did not report ${sha}`, { observed: env.observed });
-
-    // 4. Verify (skipped if the environment is wrong: such evidence would be about another build)
+    // 5. Verify (skipped if the environment is wrong: such evidence would be about another build)
     let evidence = null, evidenceDigest: string | null = null;
     if (env.confirmed) {
       await status(id, 'verifying');
-      const run = await runVerifiers(repo, id, sha);
+      const run = await runVerifiers(repo, id, short);
       evidence = run.record;
       evidenceDigest = await put('evidence', run.raw);
       const states = Object.values(evidence.checks).map((c) => c.state);
@@ -78,10 +84,10 @@ export async function runAssessment(id: string, req: AssessmentRequest) {
       await pool.query('UPDATE assessments SET evidence_digest = $1 WHERE id = $2', [evidenceDigest, id]);
     }
 
-    // 5. Decide
+    // 6. Decide
     await status(id, 'deciding');
     const results = assess(snapshot, evidence);
-    const decision = env.confirmed ? dispose(results) : { disposition: 'INDETERMINATE' as const, because: `${repo.environment.name} is not running ${sha}` };
+    const decision = env.confirmed ? dispose(results) : { disposition: 'INDETERMINATE' as const, because: `${repo.environment.name} is not running ${short}` };
     for (const r of results) {
       await pool.query(
         `INSERT INTO obligation_results (assessment_id, obligation_id, policy_id, policy_version, authority, severity, statement, evidence_check, state, reason, excepted_by)
@@ -90,7 +96,7 @@ export async function runAssessment(id: string, req: AssessmentRequest) {
     }
     await event(id, 'decide', `${decision.disposition}: ${decision.because}`);
 
-    // 6. Report back to the PR
+    // 7. Report back to the PR
     const reportInput = {
       assessmentId: id, repo, prNumber: req.prNumber, sha, disposition: decision.disposition, because: decision.because,
       jira, team, results, digests: { context: contextDigest, evidence: evidenceDigest, policySnapshot: snapshot.snapshotDigest },

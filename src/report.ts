@@ -29,7 +29,7 @@ export function commentMarkdown(r: ReportInput): string {
     MARKER,
     `## QIVVRA: ${label(r.disposition)}`,
     '',
-    `Commit \`${r.sha}\` · ${r.jira ? `${r.jira.key} "${r.jira.summary}" (${r.jira.acceptanceCriteria.length} acceptance criteria)` : 'no Jira issue found'}`,
+    `Commit \`${r.sha.slice(0, 7)}\` · ${r.jira ? `${r.jira.key} "${r.jira.summary}" (${r.jira.acceptanceCriteria.length} acceptance criteria)` : 'no Jira issue found'}`,
     '',
     `${team} QIVVRA assessed **${r.results.length} obligations** from the policy repository: ${supported} supported, ${open.length} open.`,
     '',

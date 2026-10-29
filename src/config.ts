@@ -10,11 +10,11 @@ export interface RepoConfig {
   sources: {
     github: { adapter: 'local-git' | 'api'; path?: string };
     jira: { adapter: 'file' | 'cloud'; path?: string };
-    xray: { adapter: 'junit'; path: string };
+    xray: { adapter: 'junit'; path: string; wait_seconds?: number };
   };
-  policies: { path: string };
+  policies: { path: string; pull?: boolean };
   environment: { name: string; base_url: string; log_path?: string; wait_for_commit_seconds: number };
-  verifiers: { adapter: 'local-playwright' | 'github-dispatch'; path?: string; repository?: string };
+  verifiers: { adapter: 'local-playwright' | 'github-dispatch'; path?: string; repository?: string; pull?: boolean };
 }
 export interface Config {
   root: string;
@@ -34,7 +34,7 @@ export const path = (p: string) => (isAbsolute(p) ? p : join(root, p));
 
 export const config: Config = {
   root,
-  server: raw.server,
+  server: { ...raw.server, public_url: process.env.QIVVRA_PUBLIC_URL || raw.server.public_url },
   database_url: process.env.DATABASE_URL ?? raw.database_url,
   evidence_store: path(raw.evidence_store),
   outbox: path(raw.outbox),

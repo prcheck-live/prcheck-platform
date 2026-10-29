@@ -24,7 +24,11 @@ GitHub webhook ──▶ intake ──▶ gather ──▶ freeze ──▶ envi
 
 The team's test results are gathered and shown, but they **never** decide the outcome. They show what the team checked, which is the contrast QIVVRA exists to expose.
 
-## Run the demo
+## Live demo on one Linux machine
+
+To run it for real (a GitHub org, a self-hosted runner as QE, and a Cloudflare tunnel to the engine), follow `deploy/linux-local/README.md`.
+
+## Run the demo (simulated, no GitHub)
 
 Everything runs locally against VendorPay PR #482. You need PostgreSQL with a `vendorpay` database (for the app) and a `qivvra` database (for the engine), and ports 3000 and 4000 free. The repos sit side by side: `vendorpay-app`, `vendorpay-policies`, `qivvra-verifiers`, `qivvra-platform`.
 

@@ -36,7 +36,7 @@ app.post('/webhooks/github', express.raw({ type: 'application/json', limit: '5mb
   if (!repo) return res.status(202).json({ ignored: `repository ${payload.repository?.full_name} is not onboarded` });
   const pr = payload.pull_request;
   const request = {
-    repo, prNumber: pr.number, headSha: String(pr.head.sha).slice(0, 7), baseRef: pr.base.ref, headRef: pr.head.ref, title: pr.title,
+    repo, prNumber: pr.number, headSha: String(pr.head.sha), baseRef: pr.base.ref, headRef: pr.head.ref, title: pr.title,
     trigger: `github:${delivery}`,
   };
   const id = await createAssessment(request);

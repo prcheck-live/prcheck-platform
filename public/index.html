@@ -64,7 +64,7 @@ async function list() {
       <tbody>${assessments.map((a) => `<tr class="row" data-id="${esc(a.id)}">
         <td class="mono">${esc(a.id)}</td>
         <td><b>${esc(a.jira_key || '')}</b> PR #${a.pr_number}<div class="muted">${esc(a.title || '')}</div></td>
-        <td class="mono">${esc(a.head_sha)}</td>
+        <td class="mono">${esc(a.head_sha.slice(0, 7))}</td>
         <td><span class="d ${esc(a.disposition)}">${esc(label(a.disposition))}</span>${a.status !== 'done' ? `<div class="muted">${esc(a.status.replace('_', ' '))}…</div>` : ''}</td>
         <td>${a.summary.obligations ? `${a.summary.supported}/${a.summary.obligations} supported` : '—'}</td>
         <td>${a.summary.teamTests ? `${a.summary.teamTests.passed}/${a.summary.teamTests.total} passed` : '—'}</td>
@@ -87,7 +87,7 @@ async function detail(id) {
         <span class="d ${esc(a.disposition)}">${esc(label(a.disposition))}</span>
       </div>
       <dl class="facts" style="margin:0">
-        <div><dt>Commit</dt><dd class="mono">${esc(a.head_sha)}</dd></div>
+        <div><dt>Commit</dt><dd class="mono">${esc(a.head_sha.slice(0, 7))}</dd></div>
         <div><dt>Obligations</dt><dd>${s.obligations ? `${s.supported} supported · ${s.violated} violated` : '—'}</dd></div>
         <div><dt>Team tests</dt><dd>${s.teamTests ? `${s.teamTests.passed}/${s.teamTests.total} passed` : '—'}</dd></div>
         <div><dt>Status</dt><dd>${esc(a.status.replace('_', ' '))}</dd></div>

@@ -35,3 +35,13 @@ export async function teamResults(repo: RepoConfig, sha: string, jiraProject: st
   }
   return res;
 }
+
+/** Polls for the team's results for a commit, up to sources.xray.wait_seconds (default 0). */
+export async function waitForTeamResults(repo: RepoConfig, sha: string): Promise<TeamResults | null> {
+  const deadline = Date.now() + (repo.sources.xray.wait_seconds ?? 0) * 1000;
+  for (;;) {
+    const r = await teamResults(repo, sha, repo.jira_project);
+    if (r || Date.now() >= deadline) return r;
+    await new Promise((res) => setTimeout(res, 3000));
+  }
+}

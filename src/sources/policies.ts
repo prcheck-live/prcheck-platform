@@ -18,6 +18,8 @@ export interface PolicySnapshot {
  */
 export function selectPolicies(repo: RepoConfig, files: string[], jiraKey: string | null): PolicySnapshot {
   const dir = path(repo.policies.path);
+  // Use the latest approved rules: main of the policy repo, as merged with CODEOWNERS approval.
+  if (repo.policies.pull) execFileSync('git', ['-C', dir, 'pull', '--ff-only', '-q'], { stdio: 'ignore' });
   const args = ['tsx', 'scripts/select.ts', '--repo', repo.key, '--paths', files.join(','), '--json'];
   if (jiraKey) args.push('--jira', jiraKey);
   return JSON.parse(execFileSync('npx', args, { cwd: dir, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }));

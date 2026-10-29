@@ -1,0 +1,30 @@
+# QIVVRA engine configuration for one Linux machine. setup.sh copies this to
+# ~/qivvra/qivvra.config.yaml and replaces __ORG__. Relative paths resolve from ~/qivvra.
+server:
+  port: 4000
+  public_url: http://localhost:4000          # start.sh overrides this with the tunnel URL
+database_url: postgres://qivvra:qivvra@localhost:5432/qivvra
+evidence_store: data/evidence
+outbox: data/outbox
+
+repositories:
+  vendorpay:
+    github: __ORG__/vendorpay-app
+    base_branch: main
+    jira_project: VP
+    sources:
+      github: { adapter: api }                                       # uses QIVVRA_GITHUB_TOKEN
+      jira:   { adapter: file, path: repos/qivvra-platform/fixtures/jira }   # switch to { adapter: cloud } when Jira is connected
+      xray:   { adapter: junit, path: team-results, wait_seconds: 600 }      # written by the team CI job on this machine
+    policies:
+      path: repos/vendorpay-policies
+      pull: true                                                     # always assess against the latest approved rules
+    environment:
+      name: qe
+      base_url: http://localhost:3000
+      log_path: qe/app.log
+      wait_for_commit_seconds: 900                                   # the QE deploy runs after the webhook arrives
+    verifiers:
+      adapter: local-playwright
+      path: repos/qivvra-verifiers
+      pull: true
