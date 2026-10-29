@@ -1,0 +1,15 @@
+{
+  "key": "VP-181",
+  "summary": "Onboard a supplier with a bank account that a second person verifies",
+  "status": "Done",
+  "type": "Story",
+  "labels": [
+    "suppliers"
+  ],
+  "acceptanceCriteria": [
+    "Only PROCUREMENT creates suppliers.",
+    "Account 9-18 digits; IFSC ^[A-Z]{4}0[A-Z0-9]{6}$; invalid input returns 422.",
+    "Supplier is pending until a FINANCE_APPROVER verifies the account.",
+    "The person who added the account cannot verify it (SELF_VERIFICATION_NOT_ALLOWED).."
+  ]
+}

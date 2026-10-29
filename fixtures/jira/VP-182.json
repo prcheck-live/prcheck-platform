@@ -1,0 +1,14 @@
+{
+  "key": "VP-182",
+  "summary": "Show bank account numbers masked everywhere",
+  "status": "Done",
+  "type": "Story",
+  "labels": [
+    "suppliers",
+    "security"
+  ],
+  "acceptanceCriteria": [
+    "UI and API show only the last four digits.",
+    "Logs replace any 9-18 digit number with **** last4.."
+  ]
+}

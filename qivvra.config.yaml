@@ -1,0 +1,28 @@
+# QIVVRA engine configuration. Paths are relative to this file.
+# Every source has a local adapter (used for demos and tests) and a cloud adapter.
+server:
+  port: 4000
+  public_url: http://localhost:4000
+database_url: postgres://qivvra:qivvra@localhost:5432/qivvra
+evidence_store: data/evidence            # write-once, content-addressed (S3 Object Lock in production)
+outbox: data/outbox                      # where reports go when no GitHub token is configured
+
+repositories:
+  vendorpay:
+    github: vendorpay/vendorpay-app
+    base_branch: main
+    jira_project: VP
+    sources:
+      github: { adapter: local-git, path: ../vendorpay-app }        # or: { adapter: api } with QIVVRA_GITHUB_TOKEN
+      jira:   { adapter: file, path: fixtures/jira }                 # or: { adapter: cloud } with JIRA_BASE_URL, JIRA_EMAIL, JIRA_TOKEN
+      xray:   { adapter: junit, path: data/team-results }            # <sha>/junit.xml from the team's CI
+    policies:
+      path: ../vendorpay-policies
+    environment:
+      name: qe
+      base_url: http://localhost:3000
+      log_path: data/qe/app.log
+      wait_for_commit_seconds: 120
+    verifiers:
+      adapter: local-playwright                                      # or: github-dispatch
+      path: ../qivvra-verifiers

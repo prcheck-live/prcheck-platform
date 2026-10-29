@@ -1,0 +1,17 @@
+{
+  "key": "VP-184",
+  "summary": "Let Procurement change a supplier's bank account",
+  "status": "In Review",
+  "type": "Story",
+  "labels": [
+    "suppliers",
+    "payments"
+  ],
+  "acceptanceCriteria": [
+    "Procurement can submit a new bank account for an active supplier.",
+    "The new account must be approved by a Finance Approver before it becomes active.",
+    "The new account number is masked in the UI and API.",
+    "The change is recorded in the audit trail.",
+    "When a bank change is approved, payments still scheduled to the old account are put on hold for Finance review; a Finance Approver who did not request the change redirects or cancels each one. Held payments cannot be released."
+  ]
+}

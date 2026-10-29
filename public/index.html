@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QIVVRA Assessments</title>
+<style>
+  :root {
+    --ink: #102A43; --ink-2: #334E68; --muted: #627D98; --bg: #F5F7FA; --card: #fff; --line: #D9E2EC; --head: #EAF0F6;
+    --blue: #2449D8; --blue-tint: #E9EEFC;
+    --green: #2F855A; --green-tint: #E6F4EC; --red: #B42727; --red-tint: #FDEDED; --amber: #7F5410; --amber-tint: #FDF4DC; --grey-tint: #EDF1F6;
+    --mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  header { background: var(--ink); color: #fff; padding: 14px 24px; display: flex; align-items: center; gap: 14px; }
+  header b { letter-spacing: .14em; font-size: 15px; }
+  header span { color: #9FB3C8; font-size: 13px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; } h2 { font-size: 15px; margin: 28px 0 10px; }
+  a { color: var(--blue); text-decoration: none; } a:hover { text-decoration: underline; }
+  .muted { color: var(--muted); } .mono { font-family: var(--mono); font-size: 12.5px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  .tbl-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); }
+  th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); background: var(--head); padding: 9px 12px; }
+  td { padding: 10px 12px; border-top: 1px solid var(--line); vertical-align: top; }
+  tr.row:hover td { background: #FAFBFD; cursor: pointer; }
+  .d { display: inline-block; font-weight: 700; font-size: 11.5px; letter-spacing: .04em; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+  .d.READY, .s.SUPPORTED { background: var(--green-tint); color: var(--green); }
+  .d.NOT_READY, .s.VIOLATED, .s.CONFLICTED { background: var(--red-tint); color: var(--red); }
+  .d.READY_WITH_EXCEPTIONS, .s.INSUFFICIENT { background: var(--amber-tint); color: var(--amber); }
+  .d.INDETERMINATE, .d.AWAITING_ASSESSMENT, .s.NOT_ASSESSED { background: var(--grey-tint); color: var(--ink-2); }
+  .s { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 1px 7px; white-space: nowrap; }
+  .hero { padding: 20px 22px; display: grid; grid-template-columns: 1fr auto; gap: 12px 24px; align-items: start; }
+  .hero .d { font-size: 15px; padding: 6px 16px; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px; background: var(--line); border-top: 1px solid var(--line); border-radius: 0 0 10px 10px; overflow: hidden; }
+  .facts div { background: var(--card); padding: 12px 16px; } .facts dt { font-size: 11.5px; color: var(--muted); } .facts dd { margin: 2px 0 0; font-weight: 600; }
+  .timeline { list-style: none; padding: 0; margin: 0; } .timeline li { display: grid; grid-template-columns: 96px 110px 1fr; gap: 10px; padding: 7px 14px; border-top: 1px solid var(--line); }
+  .timeline li:first-child { border-top: 0; } .step { font-weight: 600; color: var(--blue); }
+  .reason { color: var(--ink-2); font-size: 12.5px; margin-top: 3px; white-space: pre-wrap; }
+  .empty { padding: 28px; text-align: center; color: var(--muted); }
+  @media (max-width: 640px) { .hero { grid-template-columns: 1fr; } .timeline li { grid-template-columns: 1fr; gap: 0; } }
+</style>
+</head>
+<body>
+<header><b>QIVVRA</b><span>Independent change assurance</span></header>
+<main id="view"><div class="empty">Loading…</div></main>
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const label = (d) => String(d || '').replace(/_/g, ' ');
+const when = (v) => (v ? new Date(v).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—');
+const time = (v) => new Date(v).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+let timer;
+
+async function list() {
+  const { assessments } = await (await fetch('/api/assessments')).json();
+  $('#view').innerHTML = `
+    <h1>Assessments</h1><p class="muted">Every pull request QIVVRA has assessed, newest first.</p>
+    <div class="card tbl-wrap">${assessments.length ? `<table>
+      <thead><tr><th>Assessment</th><th>Change</th><th>Commit</th><th>Disposition</th><th>Obligations</th><th>Team tests</th><th>Started</th></tr></thead>
+      <tbody>${assessments.map((a) => `<tr class="row" data-id="${esc(a.id)}">
+        <td class="mono">${esc(a.id)}</td>
+        <td><b>${esc(a.jira_key || '')}</b> PR #${a.pr_number}<div class="muted">${esc(a.title || '')}</div></td>
+        <td class="mono">${esc(a.head_sha)}</td>
+        <td><span class="d ${esc(a.disposition)}">${esc(label(a.disposition))}</span>${a.status !== 'done' ? `<div class="muted">${esc(a.status.replace('_', ' '))}…</div>` : ''}</td>
+        <td>${a.summary.obligations ? `${a.summary.supported}/${a.summary.obligations} supported` : '—'}</td>
+        <td>${a.summary.teamTests ? `${a.summary.teamTests.passed}/${a.summary.teamTests.total} passed` : '—'}</td>
+        <td>${esc(when(a.created_at))}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No assessments yet. Open or update a pull request on an onboarded repository.</div>'}</div>`;
+  document.querySelectorAll('tr[data-id]').forEach((tr) => tr.addEventListener('click', () => go(`/assessments/${tr.dataset.id}`)));
+  if (assessments.some((a) => a.status !== 'done' && a.status !== 'failed')) timer = setTimeout(list, 3000);
+}
+
+async function detail(id) {
+  const res = await fetch(`/api/assessments/${encodeURIComponent(id)}`);
+  if (!res.ok) { $('#view').innerHTML = '<div class="card empty">Assessment not found.</div>'; return; }
+  const { assessment: a, obligations, events } = await res.json();
+  const s = a.summary || {};
+  $('#view').innerHTML = `
+    <p><a href="/" data-link>← All assessments</a></p>
+    <div class="card">
+      <div class="hero">
+        <div><h1>${esc(a.jira_key || '')} · PR #${a.pr_number}</h1><div class="muted">${esc(a.title || '')}</div>
+          <p style="margin:10px 0 0">${esc(s.because || (a.status === 'failed' ? a.error : 'Assessment in progress'))}</p></div>
+        <span class="d ${esc(a.disposition)}">${esc(label(a.disposition))}</span>
+      </div>
+      <dl class="facts" style="margin:0">
+        <div><dt>Commit</dt><dd class="mono">${esc(a.head_sha)}</dd></div>
+        <div><dt>Obligations</dt><dd>${s.obligations ? `${s.supported} supported · ${s.violated} violated` : '—'}</dd></div>
+        <div><dt>Team tests</dt><dd>${s.teamTests ? `${s.teamTests.passed}/${s.teamTests.total} passed` : '—'}</dd></div>
+        <div><dt>Status</dt><dd>${esc(a.status.replace('_', ' '))}</dd></div>
+        <div><dt>Assessment</dt><dd class="mono">${esc(a.id)}</dd></div>
+      </dl>
+    </div>
+    <h2>Obligations</h2>
+    <div class="card tbl-wrap">${obligations.length ? `<table><thead><tr><th>State</th><th>Obligation</th><th>Policy</th><th>Evidence</th></tr></thead><tbody>
+      ${obligations.map((o) => `<tr><td><span class="s ${esc(o.state)}">${esc(label(o.state))}</span></td>
+        <td><b>${esc(o.obligation_id)}</b> ${esc(o.statement)}${o.state !== 'SUPPORTED' && o.reason ? `<div class="reason">${esc(o.reason.split('\n')[0].replace(/^Error:\s*/, ''))}</div>` : ''}</td>
+        <td>${esc(o.policy_id)} v${esc(o.policy_version)}<div class="muted">${esc(o.authority)}, ${esc(o.severity)}</div></td>
+        <td class="mono">${esc(o.evidence_check)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Not decided yet.</div>'}</div>
+    <h2>Timeline</h2>
+    <div class="card"><ul class="timeline">${events.map((e) => `<li><span class="mono">${esc(time(e.at))}</span><span class="step">${esc(e.step)}</span><span>${esc(e.message)}</span></li>`).join('')}</ul></div>
+    <h2>Proof</h2>
+    <div class="card" style="padding:14px 18px">
+      ${[['Frozen context', a.context_digest], ['Verifier evidence', a.evidence_digest], ['PR report', a.report_digest]].map(([k, d]) =>
+        `<div style="margin:4px 0">${k}: ${d ? `<a class="mono" href="/api/evidence/${esc(d)}" target="_blank">${esc(d.slice(0, 23))}…</a>` : '<span class="muted">—</span>'}</div>`).join('')}
+      <p class="muted" style="margin:8px 0 0">Each object is stored write-once under its SHA-256 and re-checked when it is read.</p>
+    </div>`;
+  $('[data-link]').addEventListener('click', (e) => { e.preventDefault(); go('/'); });
+  if (a.status !== 'done' && a.status !== 'failed') timer = setTimeout(() => detail(id), 2000);
+}
+
+function go(path) { history.pushState(null, '', path); route(); }
+function route() {
+  clearTimeout(timer);
+  const m = location.pathname.match(/^\/assessments\/([^/]+)$/);
+  (m ? detail(decodeURIComponent(m[1])) : list()).catch((e) => { $('#view').innerHTML = `<div class="card empty">${esc(e.message)}</div>`; });
+}
+window.addEventListener('popstate', route);
+route();
+</script>
+</body>
+</html>

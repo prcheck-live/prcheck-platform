@@ -1,0 +1,15 @@
+{
+  "key": "VP-183",
+  "summary": "Schedule and release supplier payments with separation of duties",
+  "status": "Done",
+  "type": "Story",
+  "labels": [
+    "payments"
+  ],
+  "acceptanceCriteria": [
+    "Only FINANCE_OPS schedules; only active suppliers.",
+    "Amount positive with at most two decimals; date today or later.",
+    "Destination account fixed at creation.",
+    "Only FINANCE_APPROVER releases; not the scheduler (SELF_RELEASE_NOT_ALLOWED); released once.."
+  ]
+}

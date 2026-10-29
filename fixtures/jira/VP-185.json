@@ -1,0 +1,14 @@
+{
+  "key": "VP-185",
+  "summary": "Record an audit trail of every change",
+  "status": "Done",
+  "type": "Story",
+  "labels": [
+    "audit"
+  ],
+  "acceptanceCriteria": [
+    "Onboarding, verification, scheduling and release write audit events with actor.",
+    "No full account numbers in details.",
+    "AUDITOR and FINANCE_APPROVER can read; others 403.."
+  ]
+}

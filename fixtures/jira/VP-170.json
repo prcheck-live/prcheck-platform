@@ -1,0 +1,12 @@
+{
+  "key": "VP-170",
+  "summary": "VendorPay supplier payments",
+  "status": "In Progress",
+  "type": "Epic",
+  "labels": [
+    "vendorpay"
+  ],
+  "acceptanceCriteria": [
+    "Baseline platform: sign-in, roles, /health, /version and log masking.."
+  ]
+}
