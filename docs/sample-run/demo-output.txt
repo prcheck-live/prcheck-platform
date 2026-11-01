@@ -1,0 +1,26 @@
+QIVVRA engine running on http://localhost:4000
+
+=== PR #482 @ af51c26  VP-184: bank-change request and approval
+QE      running af51c26
+Team CI tests="25" failures: failures="0"
+GitHub  webhook → ASM-1001
+QIVVRA  NOT READY — violated: FIN-001.1, FIN-002.1, FIN-002.3
+        VIOLATED      FIN-001.1 The person who requested a bank account change cannot approve it.
+        VIOLATED      FIN-002.1 After a bank change is approved, the supplier's scheduled payments are on hold and cannot be released.
+        VIOLATED      FIN-002.3 Each held payment is visible to Finance with the reason it was held.
+
+=== PR #482 @ ae50deb  VP-184: block self-approval of bank changes
+QE      running ae50deb
+Team CI tests="26" failures: failures="0"
+GitHub  webhook → ASM-1002
+QIVVRA  NOT READY — violated: FIN-002.1, FIN-002.3
+        VIOLATED      FIN-002.1 After a bank change is approved, the supplier's scheduled payments are on hold and cannot be released.
+        VIOLATED      FIN-002.3 Each held payment is visible to Finance with the reason it was held.
+
+=== PR #482 @ 3f6e20d  VP-184: hold scheduled payments on bank change
+QE      running 3f6e20d
+Team CI tests="29" failures: failures="0"
+GitHub  webhook → ASM-1003
+QIVVRA  READY — all 14 obligations supported
+
+Reports: /home/claude/qivvra-platform/data/outbox/<assessment>/pr-comment.md   UI: http://localhost:4000 (while the engine runs)

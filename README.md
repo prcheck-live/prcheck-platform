@@ -98,8 +98,10 @@ Simulated-only prototype actions are not faked. Findings reach the producer as t
 |---|---|---|
 | a.rao@qivvra.demo | Assurance Lead | Everything about changes; re-run assurance; integrations and profiles |
 | r.das@qivvra.demo | Contributor (VendorPay only) | Read VendorPay changes; request a re-run |
-| m.iyer@qivvra.demo | Viewer + Authority: Finance | Read; sees finance rules first |
-| s.qureshi@qivvra.demo | Contributor + Authority: Security | Read all changes; sees security rules first |
+| m.iyer@qivvra.demo | Viewer + Authority: Finance | Read; sees finance rules (FIN-001..003) first |
+| s.qureshi@qivvra.demo | Contributor + Authority: Security | Read all changes; sees security rules (SEC-001) first |
+| v.bose@qivvra.demo | Viewer + Authority: Compliance | Read; sees compliance rules (CMP-001) first |
+| a.pillai@qivvra.demo | Contributor + Authority: Platform | Read all changes; sees platform rules (PLT-001) first; request a re-run |
 | k.shah@qivvra.demo | Viewer | Read-only release readiness |
 | p.nair@qivvra.demo | Admin | Integrations, users, profiles; **no** change evidence |
 
@@ -136,3 +138,17 @@ Replace `ACCOUNTS` with your identity provider (OIDC/SAML) for production. Set `
 - The Jira fixtures hold VP-184 as it is today (5 acceptance criteria), so the assessments of commits 1 and 2 also show 5. In real Jira, the frozen context captures the story as it was at assessment time.
 - Sign-in uses demo identities; connect an identity provider for production.
 - Simulated prototype workflows (routing missing intent, approving exceptions in-app) are replaced by their real GitHub equivalents, not by new UI.
+
+## How the role sets connect
+
+| QIVVRA user | Authority | GitHub team (CODEOWNERS in vendorpay-policies) | Rules owned |
+|---|---|---|---|
+| Meera Iyer | Finance | `finance-controls` | FIN-001, FIN-002, FIN-003 |
+| Sana Qureshi | Security | `security` | SEC-001 |
+| Vikram Bose | Compliance | `compliance` | CMP-001 |
+| Arjun Pillai | Platform | `platform-eng` | PLT-001 |
+| Anika Rao | (Assurance Lead) | `qivvra-assurance-leads` | Profiles, catalog |
+
+QIVVRA does not yet read GitHub team membership: keep the authority tags here and the team members on GitHub in step by hand.
+
+VendorPay's own users (password `VendorPay@2026`) are separate. QIVVRA's verifiers sign in to VendorPay as ravi.kumar (Procurement), neha.joshi (Finance Ops), m.fernandes and j.thomas (two Finance Approvers) and audit.viewer (Auditor).

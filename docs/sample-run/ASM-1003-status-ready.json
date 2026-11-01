@@ -1,0 +1,8 @@
+{
+  "repo": "vendorpay/vendorpay-app",
+  "sha": "3f6e20da8e085a401d8c1ec67368fbeae3cc46b5",
+  "state": "success",
+  "description": "READY: all 14 obligations supported",
+  "context": "qivvra/assurance",
+  "target_url": "http://localhost:4000/assessments/ASM-1003"
+}

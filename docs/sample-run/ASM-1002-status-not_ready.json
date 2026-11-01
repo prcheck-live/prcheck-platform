@@ -1,0 +1,8 @@
+{
+  "repo": "vendorpay/vendorpay-app",
+  "sha": "ae50debcd01bcc47fc137855cbc21b0e72107f1e",
+  "state": "failure",
+  "description": "NOT READY: violated: FIN-002.1, FIN-002.3",
+  "context": "qivvra/assurance",
+  "target_url": "http://localhost:4000/assessments/ASM-1002"
+}
