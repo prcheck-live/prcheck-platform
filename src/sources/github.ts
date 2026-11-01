@@ -39,3 +39,14 @@ export function jiraKeyFrom(project: string, ...texts: Array<string | undefined>
   for (const t of texts) { const m = t?.match(re); if (m) return m[1]; }
   return null;
 }
+
+/** First line of the head commit message, shown as the revision summary. */
+export async function commitSubject(repo: RepoConfig, sha: string): Promise<string | null> {
+  try {
+    if (repo.sources.github.adapter === 'local-git') {
+      return execFileSync('git', ['-C', path(repo.sources.github.path!), 'log', '-1', '--format=%s', sha], { encoding: 'utf8' }).trim() || null;
+    }
+    const c = await githubApi(`/repos/${repo.github}/commits/${sha}`);
+    return String(c.commit?.message ?? '').split('\n')[0] || null;
+  } catch { return null; }
+}

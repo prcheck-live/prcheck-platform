@@ -9,6 +9,7 @@ outbox: data/outbox
 
 repositories:
   vendorpay:
+    app: VendorPay
     github: __ORG__/vendorpay-app
     base_branch: main
     jira_project: VP

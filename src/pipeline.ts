@@ -4,7 +4,7 @@ import { assess, dispose } from './decide';
 import { waitForCommit } from './environment';
 import { put } from './evidence-store';
 import { commentMarkdown, publish } from './report';
-import { changedFiles, jiraKeyFrom } from './sources/github';
+import { changedFiles, commitSubject, jiraKeyFrom } from './sources/github';
 import { fetchIssue } from './sources/jira';
 import { selectPolicies } from './sources/policies';
 import { teamResults, waitForTeamResults } from './sources/xray';
@@ -44,7 +44,8 @@ export async function runAssessment(id: string, req: AssessmentRequest) {
     await status(id, 'gathering');
     const jiraKey = jiraKeyFrom(repo.jira_project, req.title, req.headRef);
     const files = await changedFiles(repo, req.baseRef, sha);
-    await event(id, 'gather', `${files.files.length} changed files from ${files.source}`);
+    const headCommit = await commitSubject(repo, sha);
+    await event(id, 'gather', `${files.files.length} changed files from ${files.source}${headCommit ? ` · "${headCommit}"` : ''}`);
     const jira = jiraKey ? await fetchIssue(repo, jiraKey) : null;
     await event(id, 'gather', jira ? `${jira.key} "${jira.summary}" (${jira.status}, ${jira.acceptanceCriteria.length} ACs)` : `No Jira issue for ${jiraKey ?? 'this PR'}`);
     const snapshot = selectPolicies(repo, files.files, jiraKey);
@@ -66,7 +67,7 @@ export async function runAssessment(id: string, req: AssessmentRequest) {
     const context = {
       kind: 'qivvra.context/v1', assessmentId: id, repository: repo.github, prNumber: req.prNumber, headSha: sha,
       baseRef: req.baseRef, headRef: req.headRef ?? null, title: req.title ?? null,
-      changedFiles: files, jira, teamResults: team, policySnapshot: snapshot, environment: env, frozenAt: new Date().toISOString(),
+      changedFiles: files, headCommit, jira, teamResults: team, policySnapshot: snapshot, environment: env, frozenAt: new Date().toISOString(),
     };
     const contextDigest = await put('context', JSON.stringify(context, null, 2));
     await pool.query('UPDATE assessments SET jira_key = $1, context_digest = $2 WHERE id = $3', [jiraKey, contextDigest, id]);

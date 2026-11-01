@@ -9,6 +9,7 @@ outbox: data/outbox                      # where reports go when no GitHub token
 
 repositories:
   vendorpay:
+    app: VendorPay
     github: vendorpay/vendorpay-app
     base_branch: main
     jira_project: VP

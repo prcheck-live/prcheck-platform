@@ -4,6 +4,7 @@ import { parse } from 'yaml';
 
 export interface RepoConfig {
   key: string;
+  app?: string;
   github: string;
   base_branch: string;
   jira_project: string;

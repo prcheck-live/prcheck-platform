@@ -76,7 +76,7 @@ This starts the tunnel, prints its public URL, starts the engine and the runner,
 - makes **`qivvra/assurance` a required check** on `vendorpay-app` main;
 - requires validation and a **code-owner approval** on `vendorpay-policies` main.
 
-Open the printed URL to see the QIVVRA UI.
+Open the printed URL to see the QIVVRA UI: the approved prototype, now on live data. Sign in as `a.rao@qivvra.demo` (password `Qivvra@2026`, code `246810`) to drive the demo; the other demo accounts show what each role sees.
 
 ## Step 5: the demo
 
@@ -95,7 +95,8 @@ Talking points:
 - The team's checks are green on all three commits; only QIVVRA tells them apart.
 - Commit 2 is the moment that sells it: the team fixed the bug they knew about, and QIVVRA still blocks the one the story never mentioned.
 - In the PR comment, every blocker names its policy owner (`@<org>/finance-controls`) and the evidence.
-- In the QIVVRA UI, the proof links are write-once SHA-256 objects. Editing one by hand makes the engine refuse to serve it.
+- In the QIVVRA UI, open **Revisions** for the commit-by-commit comparison, **Evidence** for the verifier's observation (for example PAY-xxxx still `scheduled` and released with HTTP 200), and the **Assurance case** for sealed proof. Editing a stored object by hand makes the engine refuse to serve it.
+- Sign in as `r.das` (Contributor), `m.iyer` (Finance authority) or `p.nair` (Admin) to show that roles are enforced by the server, not just hidden in the menu.
 
 ## Stop
 
@@ -131,4 +132,4 @@ Talking points:
 ## Safety
 
 - The runner executes code from PR branches on your machine. `qe-local.yml` refuses PRs from forks, and `register-runner.sh` turns on approval for external contributors. Only add people you trust to the org.
-- The quick tunnel URL is public but random, and the webhook endpoint rejects anything without the right signature. The engine UI has no sign-in, so don't share the URL beyond the demo.
+- The quick tunnel URL is public but random, and the webhook endpoint rejects anything without the right signature. The UI requires sign-in, but the accounts are demo identities with a published password, so don't share the URL beyond the demo.

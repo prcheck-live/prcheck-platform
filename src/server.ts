@@ -1,11 +1,14 @@
 import express from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
+import { readFileSync } from 'fs';
 import { join } from 'path';
+import { access, requireUser, seesApp } from './auth';
 import { config, repoByGithubName } from './config';
 import { pool } from './db';
 import { get } from './evidence-store';
 import { migrate } from './migrate';
 import { createAssessment, enqueue } from './pipeline';
+import { ui } from './ui';
 
 const app = express();
 app.disable('x-powered-by');
@@ -44,17 +47,27 @@ app.post('/webhooks/github', express.raw({ type: 'application/json', limit: '5mb
   res.status(202).json({ assessmentId: id, url: `${config.server.public_url}/assessments/${id}` });
 } catch (e) { next(e); } });
 
-app.get('/api/assessments', async (req, res) => {
+/** Signed-in users, or internal tools (CLI, demo scripts) holding the webhook secret. */
+function requireUserOrInternal(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const key = req.header('x-qivvra-key');
+  if (key && process.env.WEBHOOK_SECRET && key.length === process.env.WEBHOOK_SECRET.length &&
+      timingSafeEqual(Buffer.from(key), Buffer.from(process.env.WEBHOOK_SECRET))) return next();
+  return requireUser(req, res, () => (req.user && access(req.user).scope === 'none'
+    ? res.status(403).json({ error: 'FORBIDDEN', message: 'Admins do not see change evidence' }) : next()));
+}
+const visible = (req: express.Request, repository: string) => !req.user || seesApp(req.user, config.repositories[repository]?.app ?? repository);
+
+app.get('/api/assessments', requireUserOrInternal, async (req, res) => {
   const args: unknown[] = [];
   let where = '';
   if (typeof req.query.pr === 'string') { args.push(Number(req.query.pr)); where = 'WHERE pr_number = $1'; }
   const r = await pool.query(`SELECT * FROM assessments ${where} ORDER BY created_at DESC LIMIT 100`, args);
-  res.json({ assessments: r.rows });
+  res.json({ assessments: r.rows.filter((a) => visible(req, a.repository)) });
 });
 
-app.get('/api/assessments/:id', async (req, res) => {
+app.get('/api/assessments/:id', requireUserOrInternal, async (req, res) => {
   const a = await pool.query('SELECT * FROM assessments WHERE id = $1', [req.params.id]);
-  if (!a.rowCount) return res.status(404).json({ error: 'NOT_FOUND' });
+  if (!a.rowCount || !visible(req, a.rows[0].repository)) return res.status(404).json({ error: 'NOT_FOUND' });
   const [obligations, events] = await Promise.all([
     pool.query('SELECT * FROM obligation_results WHERE assessment_id = $1 ORDER BY (state = \'SUPPORTED\'), obligation_id', [req.params.id]),
     pool.query('SELECT step, message, at FROM assessment_events WHERE assessment_id = $1 ORDER BY id', [req.params.id]),
@@ -62,13 +75,17 @@ app.get('/api/assessments/:id', async (req, res) => {
   res.json({ assessment: a.rows[0], obligations: obligations.rows, events: events.rows });
 });
 
-app.get('/api/evidence/:digest', (req, res) => {
+app.get('/api/evidence/:digest', requireUserOrInternal, async (req, res) => {
+  const owner = await pool.query('SELECT repository FROM assessments WHERE $1 IN (context_digest, evidence_digest, report_digest) LIMIT 1', [req.params.digest]);
+  if (!owner.rowCount || !visible(req, owner.rows[0].repository)) return res.status(404).json({ error: 'NOT_FOUND' });
   try {
     const content = get(req.params.digest);
     if (content === null) return res.status(404).json({ error: 'NOT_FOUND' });
     res.type(content.startsWith('{') ? 'application/json' : 'text/markdown').send(content);
   } catch (e) { res.status(500).json({ error: 'INTEGRITY_CHECK_FAILED', message: String(e) }); }
 });
+
+app.use('/api/ui', ui);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
@@ -77,8 +94,20 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 process.on('unhandledRejection', (e) => console.error('unhandled rejection', e));
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
-app.use(express.static(join(__dirname, '..', 'public')));
-app.get(['/', '/assessments/:id'], (_req, res) => res.sendFile(join(__dirname, '..', 'public', 'index.html')));
+
+/* The UI is the approved prototype (ui/prototype.html) with its demo data replaced by
+   the live layer (public/live.js). The prototype file itself is never edited by hand here. */
+function uiPage(): string {
+  const html = readFileSync(join(__dirname, '..', 'ui', 'prototype.html'), 'utf8');
+  const boot = html.lastIndexOf('{ const saved = sess(true);');
+  if (boot < 0) throw new Error('ui/prototype.html: start-up block not found; update the live layer');
+  const end = html.indexOf('\n', boot);
+  return html.slice(0, boot) + '/* start-up handled by live.js */' + html.slice(end)
+    .replace('</body>', '<script src="/live.js"></script>\n</body>');
+}
+const UI_HTML = uiPage();
+app.use(express.static(join(__dirname, '..', 'public'), { index: false }));
+app.get(['/', '/assessments/:id'], (_req, res) => res.type('html').send(UI_HTML));
 
 if (require.main === module) {
   migrate().then(() => {

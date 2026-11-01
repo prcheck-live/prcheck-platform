@@ -59,12 +59,12 @@ for C in "${COMMITS[@]}"; do
 
   # Wait for QIVVRA's decision
   for _ in $(seq 1 300); do
-    ST=$(curl -s "http://localhost:4000/api/assessments/$ID" | sed -E 's/.*"status":"([a-z_]*)".*/\1/' | head -1)
+    ST=$(curl -s -H "x-qivvra-key: $WEBHOOK_SECRET" "http://localhost:4000/api/assessments/$ID" | sed -E 's/.*"status":"([a-z_]*)".*/\1/' | head -1)
     [ "$ST" = done ] || [ "$ST" = failed ] && break
     kill -0 $ENGINE 2>/dev/null || { echo "Engine stopped:"; tail -20 "$HERE/data/engine.log"; exit 1; }
     sleep 1
   done
-  curl -s "http://localhost:4000/api/assessments/$ID" | node -e '
+  curl -s -H "x-qivvra-key: $WEBHOOK_SECRET" "http://localhost:4000/api/assessments/$ID" | node -e '
     const { assessment: a, obligations: o } = JSON.parse(require("fs").readFileSync(0, "utf8"));
     console.log(`QIVVRA  ${a.disposition.replace(/_/g, " ")} — ${a.summary.because ?? a.error}`);
     for (const x of o.filter((x) => x.state !== "SUPPORTED")) console.log(`        ${x.state.padEnd(13)} ${x.obligation_id} ${x.statement}`);'

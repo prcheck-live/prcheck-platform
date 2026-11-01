@@ -52,7 +52,7 @@ Team CI tests="29" failures="0"
 QIVVRA  READY — all 14 obligations supported
 ```
 
-Without `QIVVRA_GITHUB_TOKEN`, statuses and PR comments go to `data/outbox/<assessment>/`. Sample output from a real run is in `docs/sample-run/`. The UI at http://localhost:4000 lists assessments, with obligations, timeline and proof links (open it while the engine runs: `npm run dev`).
+Without `QIVVRA_GITHUB_TOKEN`, statuses and PR comments go to `data/outbox/<assessment>/`. Sample output from a real run is in `docs/sample-run/`. The UI is at http://localhost:4000 while the engine runs (`npm run dev`); see **The UI** below.
 
 Re-assess one commit by hand: `npm run assess -- --repo vendorpay --pr 482 --sha 88b666a --head-ref feature/VP-184-bank-change --title "VP-184: ..."`.
 
@@ -74,12 +74,48 @@ Every source has a local adapter, used by the demo, and a cloud adapter. Switch 
 
 On GitHub, make `qivvra/assurance` a **required status check** on `main`. NOT READY and INDETERMINATE then block the merge.
 
+## The UI
+
+The UI is the approved QIVVRA prototype itself (`ui/prototype.html`), unchanged, with its demo data replaced by live engine data through `public/live.js`. The engine serves both at `/`, and the PR comment links (`/assessments/<id>`) open straight into that assessment's case after sign-in.
+
+| Prototype screen | Live behaviour |
+|---|---|
+| Sign-in (password + verification code) | Checked by the engine; signed, HttpOnly session cookie |
+| Home / For you | Built per role from real assessments (queue, blocked changes, your authority's rules, release readiness, platform status) |
+| Command Center | One row per pull request, latest revision's disposition from the engine |
+| Change overview | Jira story, head commit, changed files, components, provenance, team results |
+| Revisions + compare | One revision per pushed commit; every obligation's state across commits |
+| Obligations, Gaps, Evidence, Traceability | Real obligation states, verifier observations, HTTP and API traces, sealed digests |
+| Assurance case | Engine verdict, proof digests (links re-hashed on read), assessment timeline |
+| Re-run assurance | Starts a real assessment; stages stream from the engine |
+| Integrations, Profiles, Settings | Live configuration: GitHub, Jira, policy repo, verifiers, QE `/version`, evidence store, users |
+
+Simulated-only prototype actions are not faked. Findings reach the producer as the PR comment, new commits arrive by webhook, and rules and exceptions change by pull request to the policy repository (the UI shows the exact exception file to propose).
+
+**Roles are enforced on the server** (`src/auth.ts`), with the same demo identities and password `Qivvra@2026`, code `246810`:
+
+| Account | Role | Can |
+|---|---|---|
+| a.rao@qivvra.demo | Assurance Lead | Everything about changes; re-run assurance; integrations and profiles |
+| r.das@qivvra.demo | Contributor (VendorPay only) | Read VendorPay changes; request a re-run |
+| m.iyer@qivvra.demo | Viewer + Authority: Finance | Read; sees finance rules first |
+| s.qureshi@qivvra.demo | Contributor + Authority: Security | Read all changes; sees security rules first |
+| k.shah@qivvra.demo | Viewer | Read-only release readiness |
+| p.nair@qivvra.demo | Admin | Integrations, users, profiles; **no** change evidence |
+
+Replace `ACCOUNTS` with your identity provider (OIDC/SAML) for production. Set `QIVVRA_SESSION_SECRET` so sessions survive restarts.
+
 ## API
 
 | Method | Path | |
 |---|---|---|
 | POST | `/webhooks/github` | `pull_request` opened, synchronize, reopened, ready_for_review. 401 if the signature is wrong. |
-| GET | `/api/assessments?pr=` | Latest 100 |
+| POST | `/api/ui/login/password`, `/api/ui/login`, `/api/ui/logout` | Sign-in (password, then code) |
+| GET | `/api/ui/me`, `/api/ui/changes` | Current user and access; changes visible to that user |
+| POST | `/api/ui/assessments/:id/rerun` | Assurance Lead only |
+| POST | `/api/ui/assessments/:id/request-rerun` | Contributor only |
+| GET | `/api/ui/platform`, `/api/ui/users` | Admin and Assurance Lead; users for Admin only |
+| GET | `/api/assessments?pr=` | Latest 100 (signed-in user's scope, or `x-qivvra-key: <WEBHOOK_SECRET>` for scripts) |
 | GET | `/api/assessments/:id` | Assessment, obligation results, timeline |
 | GET | `/api/evidence/:digest` | A stored object, re-hashed on read; 500 if it fails the integrity check |
 | GET | `/health` | |
@@ -98,4 +134,5 @@ On GitHub, make `qivvra/assurance` a **required status check** on `main`. NOT RE
 - The Xray cloud adapter and the GitHub-dispatched verifier run are documented interfaces only. The demo uses JUnit files and a local Playwright run.
 - `/version` reports a 7-character commit, so the engine compares the short SHA.
 - The Jira fixtures hold VP-184 as it is today (5 acceptance criteria), so the assessments of commits 1 and 2 also show 5. In real Jira, the frozen context captures the story as it was at assessment time.
-- No sign-in on the engine UI yet. The role model is in the prototype and the MVP specification.
+- Sign-in uses demo identities; connect an identity provider for production.
+- Simulated prototype workflows (routing missing intent, approving exceptions in-app) are replaced by their real GitHub equivalents, not by new UI.

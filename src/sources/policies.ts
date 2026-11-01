@@ -5,7 +5,7 @@ export interface PolicySnapshot {
   repository: string; profile: string; policyRepoCommit: string | null; snapshotDigest: string;
   components: Record<string, string[]>; unmappedFiles: string[];
   policies: Array<{
-    id: string; version: string; authority: string; owner: string; severity: string; file: string; digest: string;
+    id: string; title?: string; version: string; authority: string; owner: string; severity: string; file: string; digest: string;
     obligations: Array<{ id: string; statement: string; verifier: string; check: string }>;
   }>;
   exceptions: Array<{ id: string; policy: string; obligations: string[]; expires: string }>;
