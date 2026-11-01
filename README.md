@@ -107,6 +107,29 @@ Simulated-only prototype actions are not faked. Findings reach the producer as t
 
 Replace `ACCOUNTS` with your identity provider (OIDC/SAML) for production. Set `QIVVRA_SESSION_SECRET` so sessions survive restarts.
 
+## Onboarding an application (Admin)
+
+An Admin adds an application in the UI: **Integrations → Add application**. Nine steps; each one has a **Test connection** button that tries the real system, and **Next** stays disabled until the test passes (warnings are allowed).
+
+| Step | The Admin gives | Tested for real |
+|---|---|---|
+| Application | Display name, application key | Key format; not already onboarded |
+| GitHub | `owner/repo`, base branch, GitHub API or local clone | Repository and branch reachable with the engine's token; webhook secret set |
+| Jira | Project key; Jira Cloud site, service-account email, API token (or issue files) | Project found with those credentials |
+| Team results | Folder for `<commit>/junit.xml`, wait time | Folder writable; results found |
+| Policy repository | Git URL (cloned) or checkout path; optional read-only token | Clones, installs, runs `validate.ts`; the key is registered in `catalog/components.yaml`; profile exists; counts policies and obligations |
+| Verifiers repository | Git URL or path; optional token | Playwright lists the checks; V1 exists; **every obligation has a check** (missing ones are listed); finds the login variables the verifiers read |
+| QE environment | Base URL, deploy wait, log file | `/version` answers with a `gitSha` |
+| Test identities | QIVVRA's own logins, one per role (prefilled from what the verifiers read) | Every variable has a value |
+| Review and create | | **Every step is tested again on the server** before saving |
+
+After saving, the application is live at once (no restart) and the screen shows the webhook URL and required check to set on GitHub. Admins can **Edit** (stored secrets are kept unless replaced) and **Pause** (webhooks are acknowledged and ignored). Every create, update, pause and resume is written to `platform_audit`.
+
+- Credentials are encrypted with AES-256-GCM using `QIVVRA_SECRET_KEY` (falls back to `WEBHOOK_SECRET`), and never returned by the API. Use a KMS or vault in production.
+- Applications in `qivvra.config.yaml` still work and are shown as "Configuration file"; they are edited in the file.
+- The key must match the policy repository's catalog: the policy owners register an application there first, by pull request. QIVVRA does not let an Admin invent rules.
+- Assurance Leads can see the application list; only Admins can test, create, edit or pause. Contributors and Viewers get 403.
+
 ## API
 
 | Method | Path | |
@@ -117,6 +140,11 @@ Replace `ACCOUNTS` with your identity provider (OIDC/SAML) for production. Set `
 | POST | `/api/ui/assessments/:id/rerun` | Assurance Lead only |
 | POST | `/api/ui/assessments/:id/request-rerun` | Contributor only |
 | GET | `/api/ui/platform`, `/api/ui/users` | Admin and Assurance Lead; users for Admin only |
+| GET | `/api/ui/applications` | Every application and where it is defined (Admin, Assurance Lead) |
+| POST | `/api/ui/applications/test` | Test one onboarding step: `{ step, draft }` (Admin) |
+| POST, PUT | `/api/ui/applications`, `/api/ui/applications/:key` | Create or update; every step re-tested, 422 with results if any fails (Admin) |
+| POST | `/api/ui/applications/:key/status` | `active` or `paused` (Admin) |
+| GET | `/api/ui/applications/:key`, `/api/ui/applications/audit` | Settings without secrets; platform audit log (Admin) |
 | GET | `/api/assessments?pr=` | Latest 100 (signed-in user's scope, or `x-qivvra-key: <WEBHOOK_SECRET>` for scripts) |
 | GET | `/api/assessments/:id` | Assessment, obligation results, timeline |
 | GET | `/api/evidence/:digest` | A stored object, re-hashed on read; 500 if it fails the integrity check |
@@ -129,6 +157,8 @@ Replace `ACCOUNTS` with your identity provider (OIDC/SAML) for production. Set `
 - `assessment_events`: the timeline.
 - `evidence_objects`: an index of what is in the write-once store.
 - `webhook_deliveries`: makes redeliveries idempotent.
+- `applications`: applications onboarded in the UI, with their credentials encrypted.
+- `platform_audit`: who changed the platform's configuration.
 
 ## Known limits of this MVP build
 
@@ -137,6 +167,8 @@ Replace `ACCOUNTS` with your identity provider (OIDC/SAML) for production. Set `
 - `/version` reports a 7-character commit, so the engine compares the short SHA.
 - The Jira fixtures hold VP-184 as it is today (5 acceptance criteria), so the assessments of commits 1 and 2 also show 5. In real Jira, the frozen context captures the story as it was at assessment time.
 - Sign-in uses demo identities; connect an identity provider for production.
+- A Contributor's scope is still the VendorPay application; per-application team membership comes with the identity provider.
+- Onboarding shows the GitHub webhook and required check to set; the GitHub App would set them automatically. The verifiers run on the engine host (`local-playwright`).
 - Simulated prototype workflows (routing missing intent, approving exceptions in-app) are replaced by their real GitHub equivalents, not by new UI.
 
 ## How the role sets connect

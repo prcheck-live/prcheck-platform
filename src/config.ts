@@ -5,15 +5,22 @@ import { parse } from 'yaml';
 export interface RepoConfig {
   key: string;
   app?: string;
+  /** Where this application was defined: qivvra.config.yaml, or onboarded by an Admin in the UI. */
+  origin?: 'file' | 'ui';
+  status?: 'active' | 'paused';
+  /** Decrypted credentials, in memory only (see secrets.ts). */
+  secrets?: Record<string, string>;
+  /** Names of secrets passed to the verifiers as environment variables (their test logins). */
+  verifier_env?: string[];
   github: string;
   base_branch: string;
   jira_project: string;
   sources: {
     github: { adapter: 'local-git' | 'api'; path?: string };
-    jira: { adapter: 'file' | 'cloud'; path?: string };
+    jira: { adapter: 'file' | 'cloud'; path?: string; base_url?: string; email?: string };
     xray: { adapter: 'junit'; path: string; wait_seconds?: number };
   };
-  policies: { path: string; pull?: boolean };
+  policies: { path: string; pull?: boolean; repository?: string };
   environment: { name: string; base_url: string; log_path?: string; wait_for_commit_seconds: number };
   verifiers: { adapter: 'local-playwright' | 'github-dispatch'; path?: string; repository?: string; pull?: boolean };
 }
@@ -39,8 +46,21 @@ export const config: Config = {
   database_url: process.env.DATABASE_URL ?? raw.database_url,
   evidence_store: path(raw.evidence_store),
   outbox: path(raw.outbox),
-  repositories: Object.fromEntries(Object.entries(raw.repositories as Record<string, Omit<RepoConfig, 'key'>>).map(([k, v]) => [k, { ...v, key: k }])),
+  repositories: Object.fromEntries(Object.entries((raw.repositories ?? {}) as Record<string, Omit<RepoConfig, 'key'>>).map(([k, v]) => [k, { ...v, key: k, origin: 'file' as const }])),
 };
+
+/** Adds or replaces an application onboarded in the UI. Applications from the config file cannot be replaced. */
+export function registerRepo(r: RepoConfig) {
+  const existing = config.repositories[r.key];
+  if (existing && existing.origin === 'file') throw new Error(`${r.key} is defined in qivvra.config.yaml`);
+  config.repositories[r.key] = r;
+}
+
+/** Git credentials for a private policy or verifier repository, passed per command, never written to .git/config. */
+export function gitAuth(r: RepoConfig, which: 'POLICIES' | 'VERIFIERS'): string[] {
+  const t = r.secrets?.[`${which}_GIT_TOKEN`];
+  return t ? ['-c', `http.extraHeader=Authorization: Basic ${Buffer.from(`x-access-token:${t}`).toString('base64')}`] : [];
+}
 
 export function repoByGithubName(fullName: string): RepoConfig | undefined {
   return Object.values(config.repositories).find((r) => r.github.toLowerCase() === fullName.toLowerCase());

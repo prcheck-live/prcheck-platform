@@ -45,7 +45,7 @@ export function checkPassword(email: string, password: string): boolean {
 /* ---------- Access model (same as the prototype) ---------- */
 export const CHANGE_ROUTES = ['command', 'change', 'revisions', 'graph', 'obligations', 'gaps', 'evidence', 'case'];
 export function access(a: Account) {
-  if (a.sysRole === 'Admin') return { routes: ['home', 'integrations', 'profiles', 'org-settings'], scope: 'none' };
+  if (a.sysRole === 'Admin') return { routes: ['home', 'integrations', 'onboard', 'profiles', 'org-settings'], scope: 'none' };
   if (a.sysRole === 'Assurance Lead') return { routes: ['home', ...CHANGE_ROUTES, 'integrations', 'profiles', 'org-settings'], scope: 'all' };
   if (a.sysRole === 'Contributor') return { routes: ['home', ...CHANGE_ROUTES, 'org-settings'], scope: a.auth.length ? 'all' : 'VendorPay' };
   return { routes: ['home', ...CHANGE_ROUTES, 'org-settings'], scope: 'all' };

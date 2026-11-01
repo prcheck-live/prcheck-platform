@@ -97,6 +97,7 @@ Talking points:
 - In the PR comment, every blocker names its policy owner (`@<org>/finance-controls`) and the evidence.
 - In the QIVVRA UI, open **Revisions** for the commit-by-commit comparison, **Evidence** for the verifier's observation (for example PAY-xxxx still `scheduled` and released with HTTP 200), and the **Assurance case** for sealed proof. Editing a stored object by hand makes the engine refuse to serve it.
 - Sign in as `r.das` (Contributor), `m.iyer` (Finance authority) or `p.nair` (Admin) to show that roles are enforced by the server, not just hidden in the menu.
+- Sign in as `p.nair` (Admin) → **Integrations → Add application** to show onboarding: every step's **Test connection** tries the real system (GitHub, Jira, the policy repo's validator, the verifiers' coverage of every obligation, QE `/version`). VendorPay is already defined in `qivvra.config.yaml`, so the wizard refuses the key `vendorpay`; a second application needs its key registered in the policy repository's `catalog/components.yaml` first.
 
 ## Stop
 

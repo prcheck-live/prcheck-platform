@@ -17,6 +17,8 @@ COMMITS=("${@:-af51c26 ae50deb 3f6e20d}")
 COMMITS=(${COMMITS[@]})
 export WEBHOOK_SECRET=${WEBHOOK_SECRET:-qivvra-demo-secret}
 unset QIVVRA_GITHUB_TOKEN   # demo reports go to the outbox, never to a real repository
+# VendorPay's own database, never the engine's DATABASE_URL
+VP_DB=${VENDORPAY_DATABASE_URL:-postgres://vendorpay:vendorpay@localhost:5432/vendorpay}
 TITLE="VP-184: Let Procurement change a supplier's bank account"
 mkdir -p "$HERE/data/qe" "$HERE/data/team-results" "$HERE/data/worktrees"
 
@@ -39,14 +41,14 @@ for C in "${COMMITS[@]}"; do
   # QE deploy of exactly this commit
   WT="$HERE/data/worktrees/$SHA"; rm -rf "$WT"; git -C "$APP" worktree prune
   git -C "$APP" worktree add --detach -q "$WT" "$SHA"; ln -s "$APP/node_modules" "$WT/node_modules"
-  (cd "$WT" && npx tsc -p . && node dist/db/reset.js >/dev/null)
+  (cd "$WT" && npx tsc -p . && DATABASE_URL=$VP_DB node dist/db/reset.js >/dev/null)
   : > "$HERE/data/qe/app.log"
-  (cd "$WT" && GIT_SHA=$SHA APP_ENV=qe LOG_FILE="$HERE/data/qe/app.log" exec node dist/server.js >/dev/null 2>&1) & QE=$!
+  (cd "$WT" && DATABASE_URL=$VP_DB GIT_SHA=$SHA APP_ENV=qe LOG_FILE="$HERE/data/qe/app.log" exec node dist/server.js >/dev/null 2>&1) & QE=$!
   wait_http http://localhost:3000/health
   echo "QE      running $(curl -s localhost:3000/version | sed -E 's/.*"gitSha":"([^"]*)".*/\1/')"
 
   # Team CI: their own tests, as imported to Xray
-  (cd "$WT" && BASE_URL=http://localhost:3000 npx playwright test >/dev/null 2>&1) || true
+  (cd "$WT" && DATABASE_URL=$VP_DB BASE_URL=http://localhost:3000 npx playwright test >/dev/null 2>&1) || true
   mkdir -p "$HERE/data/team-results/$SHA"; cp "$WT/test-results/junit.xml" "$HERE/data/team-results/$SHA/junit.xml"
   echo "Team CI $(grep -o 'tests="[0-9]*"' "$WT/test-results/junit.xml" | head -1) failures: $(grep -o 'failures="[0-9]*"' "$WT/test-results/junit.xml" | head -1)"
 

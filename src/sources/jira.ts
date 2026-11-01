@@ -14,8 +14,9 @@ export async function fetchIssue(repo: RepoConfig, key: string): Promise<JiraIss
     if (!existsSync(f)) return null;
     return { ...JSON.parse(readFileSync(f, 'utf8')), source: `file ${f}` };
   }
-  const base = process.env.JIRA_BASE_URL, email = process.env.JIRA_EMAIL, token = process.env.JIRA_TOKEN;
-  if (!base || !email || !token) throw new Error('JIRA_BASE_URL, JIRA_EMAIL and JIRA_TOKEN must be set for the cloud adapter');
+  const base = (src.base_url ?? process.env.JIRA_BASE_URL)?.replace(/\/+$/, ''), email = src.email ?? process.env.JIRA_EMAIL;
+  const token = repo.secrets?.JIRA_TOKEN ?? process.env.JIRA_TOKEN;
+  if (!base || !email || !token) throw new Error('Jira site, email and API token must be set for the cloud adapter');
   const res = await fetch(`${base}/rest/api/3/issue/${key}?fields=summary,status,issuetype,labels,description`, {
     headers: { authorization: 'Basic ' + Buffer.from(`${email}:${token}`).toString('base64'), accept: 'application/json' },
   });

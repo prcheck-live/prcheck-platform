@@ -12,6 +12,7 @@ import { config, path, RepoConfig } from './config';
 import { event, pool } from './db';
 import { get } from './evidence-store';
 import { createAssessment, enqueue } from './pipeline';
+import { applications } from './applications';
 
 export const ui = Router();
 ui.use(express.json({ limit: '100kb' }));
@@ -77,6 +78,7 @@ async function changesFor(user: Account, only?: { repository: string; pr: number
       key, repository: a.repository, app: appOf(a.repository), github: repo?.github ?? a.repository, prNumber: a.pr_number,
       environment: repo ? { name: repo.environment.name, baseUrl: repo.environment.base_url } : null,
       catalog: repo ? verifierCatalog(repo) : {}, assessments: [],
+      sources: repo ? { policies: repo.policies.repository ?? repo.policies.path, verifiers: repo.verifiers.repository ?? repo.verifiers.path } : null,
     });
     const ctx = loadJson(a.context_digest), ev = loadJson(a.evidence_digest);
     const c = ctx.data;
@@ -135,14 +137,16 @@ ui.get('/platform', requirePerm('platform'), handle(async (_req, res) => {
   const repos = await Promise.all(Object.values(config.repositories).map(async (r) => {
     const polDir = path(r.policies.path), verDir = r.verifiers.path ? path(r.verifiers.path) : null;
     const policies = yamlFiles(join(polDir, 'policies')).map((f) => parse(readFileSync(f, 'utf8')));
-    const profile = (() => { try { return parse(readFileSync(join(polDir, 'profiles', 'payments-critical.yaml'), 'utf8')); } catch { return null; } })();
+    const profileId = (() => { try { return parse(readFileSync(join(polDir, 'catalog', 'components.yaml'), 'utf8')).repositories?.[r.key]?.profile; } catch { return null; } })();
+    const profile = (() => { try { return profileId ? parse(readFileSync(join(polDir, 'profiles', `${profileId}.yaml`), 'utf8')) : null; } catch { return null; } })();
     const exceptions = yamlFiles(join(polDir, 'exceptions')).map((f) => parse(readFileSync(f, 'utf8')));
     let qe: unknown = null;
     try { qe = await (await fetch(new URL('/version', r.environment.base_url), { signal: AbortSignal.timeout(2000) })).json(); } catch { qe = null; }
     const last = (await pool.query("SELECT max(created_at) AS at, count(*)::int AS n FROM assessments WHERE repository = $1", [r.key])).rows[0];
     const webhook = (await pool.query("SELECT max(received_at) AS at, count(*)::int AS n FROM webhook_deliveries")).rows[0];
     return {
-      key: r.key, app: r.app ?? r.key, github: r.github, jiraProject: r.jira_project,
+      key: r.key, app: r.app ?? r.key, github: r.github, jiraProject: r.jira_project, origin: r.origin ?? 'file', status: r.status ?? 'active',
+      policySource: r.policies.repository ?? r.policies.path, verifierSource: r.verifiers.repository ?? r.verifiers.path,
       sources: r.sources, environment: { ...r.environment, version: qe },
       policyRepo: { path: r.policies.path, commit: gitCommit(polDir), policies, profile, exceptions },
       verifiers: { adapter: r.verifiers.adapter, commit: verDir ? gitCommit(verDir) : null, catalog: verifierCatalog(r) },
@@ -156,5 +160,7 @@ ui.get('/platform', requirePerm('platform'), handle(async (_req, res) => {
     repos,
   });
 }));
+
+ui.use('/applications', applications);
 
 ui.get('/users', requirePerm('admin'), (_req, res) => res.json({ users: ACCOUNTS.map(publicAccount) }));

@@ -11,7 +11,12 @@
  */
 'use strict';
 
-const LIVE = { changes: [], byId: {}, rev: {}, caseRev: {}, platform: null, users: null, sig: '', timer: null, deep: null, runPoll: null };
+const LIVE = { changes: [], byId: {}, rev: {}, caseRev: {}, platform: null, apps: null, appSel: null, users: null, sig: '', timer: null, deep: null, runPoll: null, wiz: null };
+
+/* Repository names as people say them: "vendorpay-policies", not a URL or a path. */
+const repoLabel = s => String(s || '').replace(/\.git$/, '').replace(/\/+$/, '').split(/[\/:]/).filter(Boolean).pop() || '';
+const polName = ch => repoLabel(ch && ch.sources && ch.sources.policies) || 'policy repository';
+const verName = ch => repoLabel(ch && ch.sources && ch.sources.verifiers) || 'verifiers';
 
 /* ---------- API ---------- */
 async function api(path, opts = {}) {
@@ -98,7 +103,7 @@ function liveVM(ch, revKey) {
       : chk.state === 'VIOLATED' ? (f.received ? `${f.msg}: received ${f.received}${f.expected ? `, expected ${f.expected}` : ''}` : f.msg)
       : (chk.reason || 'Not executed').split('\n')[0];
     return {
-      verifier: { id: vid, name: `${vid} ${cat.name || ''}`.trim(), ver: x.evidence.verifierCommit ? `qivvra-verifiers@${x.evidence.verifierCommit}` : '', label: `${(cat.name || vid).toLowerCase()} verifier` },
+      verifier: { id: vid, name: `${vid} ${cat.name || ''}`.trim(), ver: x.evidence.verifierCommit ? `${verName(ch)}@${x.evidence.verifierCommit}` : '', label: `${(cat.name || vid).toLowerCase()} verifier` },
       env: envName, revHash: x.headSha.slice(0, 7), revKey: x.headSha.slice(0, 7), runId: x.id, at: fmt(new Date(x.finishedAt || x.createdAt)),
       expected: ((cat.checks || {})[cname] || `Behaviour consistent with ${r.policy_id}`).replace(/\.$/, ''),
       observed, result: STATE(chk.state),
@@ -127,10 +132,10 @@ function liveVM(ch, revKey) {
     const exception = (pol.exceptions || []).find(x => x.policy === r.policy_id && (x.obligations || []).includes(r.obligation_id));
     return {
       id: r.obligation_id, title: r.statement.replace(/\.$/, ''), statement: r.statement,
-      authority: { cls: 'Authoritative', id: r.policy_id, name: p.title || r.policy_id, owner: p.owner || '', prov: `vendorpay-policies · ${p.file || r.policy_id} v${r.policy_version}${p.digest ? ' · ' + shortD(p.digest) : ''}` },
+      authority: { cls: 'Authoritative', id: r.policy_id, name: p.title || r.policy_id, owner: p.owner || '', prov: `${polName(ch)} · ${p.file || r.policy_id} v${r.policy_version}${p.digest ? ' · ' + shortD(p.digest) : ''}` },
       crit: SEV[r.severity] || 'High', blocking: true, strength: ['SUPPORTED', 'VIOLATED'].includes(state) && !integrityFail ? 'Strong' : 'Missing',
       state, gap, gapType, plain, integrityFail, exec,
-      verifier: { id: vid, name: `${vid} ${cat.name || ''}`.trim(), ver: verCommit ? `qivvra-verifiers@${verCommit}` : '', label: `${(cat.name || vid).toLowerCase()} verifier` },
+      verifier: { id: vid, name: `${vid} ${cat.name || ''}`.trim(), ver: verCommit ? `${verName(ch)}@${verCommit}` : '', label: `${(cat.name || vid).toLowerCase()} verifier` },
       proof: ((cat.checks || {})[r.evidence_check.split('/')[1]] || 'Independent behavioural evidence for this obligation').replace(/\.$/, '') + '.',
       assumptions: `QE (${env.baseUrl}) runs commit ${a.headSha.slice(0, 7)}, confirmed at /version before and after verification. Verifiers act through VendorPay's public API and UI with QIVVRA's own test identities.`,
       noExec: inProg ? 'Assessment in progress.' : envConfirmed === false ? `Not executed. QE was not running ${a.headSha.slice(0, 7)}, so any evidence would be about a different build (PLT-001).` : 'No verifier evidence for this check.',
@@ -216,7 +221,7 @@ function render() {
   const ctx = $('#ctx'), v = $('#view');
   if (CHANGE_ROUTES.includes(r) && r !== 'command' && !ids.length) { ctx.hidden = true; ctx.innerHTML = ''; v.innerHTML = emptyChanges(); return; }
   if (CHANGE_ROUTES.includes(r) && r !== 'command') { ctx.hidden = false; ctx.innerHTML = ctxBar(curVM()); } else if (CHANGE_ROUTES.includes(r)) { ctx.hidden = true; ctx.innerHTML = ''; } else { ctx.hidden = true; ctx.innerHTML = ''; }
-  const fn = { home: viewHome, command: viewCommand, change: viewChange, revisions: viewRevisions, graph: viewGraph, obligations: viewObligations, gaps: viewGaps, evidence: viewEvidence, case: viewCase, integrations: viewIntegrations, profiles: viewProfiles, 'org-settings': viewSettings }[r];
+  const fn = { home: viewHome, command: viewCommand, change: viewChange, revisions: viewRevisions, graph: viewGraph, obligations: viewObligations, gaps: viewGaps, evidence: viewEvidence, case: viewCase, integrations: viewIntegrations, onboard: viewOnboard, profiles: viewProfiles, 'org-settings': viewSettings }[r];
   let html = fn();
   if (r === 'obligations') { const any = curVM().obls[0]; if (any) html = html.replace('>AUTH-009<', `>${esc(any.authority.id)}<`); }
   v.innerHTML = html;
@@ -330,7 +335,7 @@ function viewCase() {
     <div class="grid-even">
       <div class="card"><h2>Proof</h2><div class="kv small">${proof.map(([l, d, i]) => `<div>${l}</div><div>${d ? `<a class="mono" href="/api/evidence/${esc(d)}" target="_blank" rel="noopener">${esc(shortD(d))}</a> ${i === 'sealed' ? '<span class="badge t-green">' + ICONS.check + 'SEALED</span>' : i === 'mismatch' ? '<span class="badge t-red">MISMATCH</span>' : ''}` : '—'}</div>`).join('')}
         <div>Policy snapshot</div><div class="mono">${esc(shortD(a.context && a.context.policy && a.context.policy.snapshotDigest))} · policies ${esc((a.context && a.context.policy && a.context.policy.policyRepoCommit) || '—')}</div>
-        <div>Verifiers</div><div class="mono">qivvra-verifiers@${esc((a.evidence && a.evidence.verifierCommit) || '—')}</div></div>
+        <div>Verifiers</div><div class="mono">${esc(verName(ch))}@${esc((a.evidence && a.evidence.verifierCommit) || '—')}</div></div>
         <p class="small muted" style="margin:10px 0 0">Each object is stored write-once under its SHA-256 and re-hashed every time it is read.</p></div>
       <div class="card"><h2>Assessment timeline</h2><div class="tl">${a.events.map(e => `<div class="e" style="grid-template-columns:150px minmax(0,1fr)"><div class="w">${esc(fmt(new Date(e.at)))}</div><div><b>${esc(e.step)}</b><br>${esc(e.message)}</div></div>`).join('')}</div></div>
     </div>
@@ -383,11 +388,12 @@ function forYou() {
     const p = LIVE.platform;
     if (!p) { loadPlatform().then(() => { if (route() === 'home') render(); }); items.push('<div class="fy-empty">Loading platform status…</div>'); }
     else {
-      const r = p.repos[0];
-      const qeOk = r && r.environment.version;
-      items.push(fyItem(qeOk ? 'ok' : 'bad', qeOk ? '✓' : '!', `${p.repos.length} repository onboarded · QE ${qeOk ? 'running ' + r.environment.version.gitSha : 'not reachable'}`, `${r ? r.github : ''} · webhooks received: ${r ? r.webhooks.count : 0} · reporting via ${p.engine.reporting}`, 'Integrations', 'integrations', true));
+      const r = selRepo();
+      const down = p.repos.filter(x => !x.environment.version), paused = p.repos.filter(x => x.status === 'paused');
+      if (!p.repos.length) items.push(fyItem('bad', '+', 'No application onboarded yet', 'Add an application: connect its GitHub repository, Jira project, policy and verifier repositories, and QE environment.', 'Add application', 'add-app', true));
+      else items.push(fyItem(down.length ? 'bad' : 'ok', down.length ? '!' : '✓', `${p.repos.length} application${p.repos.length === 1 ? '' : 's'} onboarded${paused.length ? ` · ${paused.length} paused` : ''} · ${down.length ? `QE not reachable for ${down.map(x => x.app).join(', ')}` : 'every QE environment reachable'}`, `${p.repos.map(x => x.app).join(', ')} · webhooks received: ${p.repos.reduce((n, x) => n + x.webhooks.count, 0)} · reporting via ${p.engine.reporting}`, 'Integrations', 'integrations', true));
       items.push(fyItem('info', 'U', `${ACCOUNTS.length} users across 4 roles`, 'Demo identities. Connect your identity provider for production.', 'Users and roles', 'settings'));
-      items.push(fyItem('info', 'P', `${r ? r.policyRepo.policies.length : 0} policies · profile ${r && r.policyRepo.profile ? r.policyRepo.profile.id : '—'}`, `vendorpay-policies@${r ? r.policyRepo.commit : '—'} · changes need CODEOWNERS approval.`, 'Profiles', 'profiles'));
+      items.push(fyItem('info', 'P', `${r ? r.policyRepo.policies.length : 0} policies · profile ${r && r.policyRepo.profile ? r.policyRepo.profile.id : '—'}`, `${r ? repoLabel(r.policySource) : '—'}@${r ? r.policyRepo.commit : '—'} · changes need CODEOWNERS approval.`, 'Profiles', 'profiles'));
     }
   }
   if (!items.length) items.push('<div class="fy-empty">Nothing needs you right now.</div>');
@@ -399,7 +405,7 @@ async function loadPlatform() { if (!can('diagnostics') && ME.sysRole !== 'Admin
 const ago = d => (d ? fmt(new Date(d)) : 'never');
 function integMap() {
   const p = LIVE.platform; if (!p) return null;
-  const r = p.repos[0];
+  const r = selRepo(); if (!r) return null;
   const src = r.sources;
   const M = {};
   const add = (group, name, ic, status, html) => { M[name] = { group, ic, status, html }; };
@@ -407,10 +413,10 @@ function integMap() {
   add('Change producers', 'Azure DevOps', 'A', 'Available'); add('Change producers', 'AI-DLC adapters', 'A', 'Available'); add('Change producers', 'Coding agents', 'C', 'Available');
   add('Enterprise context', 'Jira / ADO Boards', 'J', 'Connected', `<p>The Jira key in the PR title or branch links the story and its acceptance criteria to the change.</p><div class="kv small"><div>Project</div><div>${esc(r.jiraProject)}</div><div>Source</div><div>${src.jira.adapter === 'cloud' ? 'Jira Cloud REST API' : 'Fixture files (demo): ' + esc(src.jira.path || '')}</div></div>`);
   add('Enterprise context', 'Confluence', 'C', 'Available');
-  add('Enterprise context', 'Policy repositories', 'P', 'Connected', `<p>Rules come from <b>vendorpay-policies</b>, owned per area through CODEOWNERS. Every assessment freezes the exact policy versions it used.</p><div class="kv small"><div>Commit</div><div class="mono">${esc(r.policyRepo.commit || '—')}</div><div>Policies</div><div>${r.policyRepo.policies.map(x => `${esc(x.id)} v${esc(x.version)}`).join(', ')}</div><div>Exceptions in force</div><div>${r.policyRepo.exceptions.length || 'None'}</div></div>`);
+  add('Enterprise context', 'Policy repositories', 'P', 'Connected', `<p>Rules come from <b>${esc(repoLabel(r.policySource))}</b>, owned per area through CODEOWNERS. Every assessment freezes the exact policy versions it used.</p><div class="kv small"><div>Commit</div><div class="mono">${esc(r.policyRepo.commit || '—')}</div><div>Policies</div><div>${r.policyRepo.policies.map(x => `${esc(x.id)} v${esc(x.version)}`).join(', ')}</div><div>Exceptions in force</div><div>${r.policyRepo.exceptions.length || 'None'}</div></div>`);
   add('Enterprise context', 'Architecture records', 'A', 'Available');
   const checks = Object.values(r.verifiers.catalog || {}).reduce((n, v) => n + Object.keys(v.checks || {}).length, 0);
-  add('Verification', 'Test frameworks', 'T', 'Connected', `<p>QIVVRA's own Playwright verifiers, kept outside the application repository so a team cannot weaken the checks on its own change.</p><div class="kv small"><div>Repository</div><div class="mono">qivvra-verifiers@${esc(r.verifiers.commit || '—')}</div><div>Verifiers</div><div>${Object.entries(r.verifiers.catalog || {}).map(([k, v]) => `${esc(k)} ${esc(v.name)}`).join(' · ')}</div><div>Checks</div><div>${checks}</div><div>Runner</div><div>${esc(r.verifiers.adapter)}</div></div>`);
+  add('Verification', 'Test frameworks', 'T', 'Connected', `<p>QIVVRA's own Playwright verifiers, kept outside the application repository so a team cannot weaken the checks on its own change.</p><div class="kv small"><div>Repository</div><div class="mono">${esc(repoLabel(r.verifierSource))}@${esc(r.verifiers.commit || '—')}</div><div>Verifiers</div><div>${Object.entries(r.verifiers.catalog || {}).map(([k, v]) => `${esc(k)} ${esc(v.name)}`).join(' · ')}</div><div>Checks</div><div>${checks}</div><div>Runner</div><div>${esc(r.verifiers.adapter)}</div></div>`);
   add('Verification', 'Jira Xray', 'X', 'Connected', `<p>The team's own test results for each commit, in Xray's JUnit import format. Shown as context; they never decide the disposition.</p><div class="kv small"><div>Source</div><div>${esc(src.xray.adapter)} · ${esc(src.xray.path)}</div></div>`);
   const v = r.environment.version;
   add('Verification', 'QE environment', 'Q', v ? 'Connected' : 'Error', v ? `<p>Verifiers run only when this environment reports the PR's exact commit.</p><div class="kv small"><div>URL</div><div class="mono">${esc(r.environment.base_url)}</div><div>Running</div><div class="mono">${esc(v.app)} ${esc(v.version)} · ${esc(v.gitSha)}</div><div>Environment</div><div>${esc(v.environment)}</div></div>` : `<p class="s-Error">Not reachable at ${esc(r.environment.base_url)}</p><p>New assessments wait for it, then end INDETERMINATE if it never reports the commit. Existing dispositions stay valid.</p>`);
@@ -419,12 +425,33 @@ function integMap() {
   add('Delivery', 'Release systems', 'R', 'Available'); add('Delivery', 'Change management', 'C', 'Available'); add('Delivery', 'Incident systems', 'I', 'Available');
   return M;
 }
+function selRepo() {
+  const p = LIVE.platform; if (!p || !p.repos.length) return null;
+  return p.repos.find(r => r.key === LIVE.appSel) || p.repos[0];
+}
+function appsTable() {
+  const apps = LIVE.apps || [], admin = ME.sysRole === 'Admin';
+  if (!apps.length) return '';
+  const src = a => a.origin === 'ui' ? `Onboarded by ${esc(a.createdBy || '—')}${a.updatedAt ? ` · updated ${esc(ago(a.updatedAt))}` : ''}` : 'Configuration file';
+  return `<div class="card" style="padding:0;margin-bottom:22px"><div style="padding:16px 20px 10px"><h2 style="margin:0">Applications</h2><p class="small muted" style="margin:4px 0 0">Each application has its own repository, Jira project, policy and verifier repositories, and QE environment.</p></div>
+    <div class="tbl-wrap" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th>Application</th><th>GitHub</th><th>Jira</th><th>QE environment</th><th>Source</th><th>Status</th>${admin ? '<th></th>' : ''}</tr></thead><tbody>
+    ${apps.map(a => `<tr><td><b>${esc(a.name)}</b><div class="mono small muted">${esc(a.key)}</div></td><td class="mono small">${esc(a.github)}</td><td>${esc(a.jiraProject)}</td><td class="mono small">${esc(a.environment)}</td><td class="small">${src(a)}</td>
+      <td><span class="${a.status === 'paused' ? 's-Requires' : 's-Connected'}">${a.status === 'paused' ? 'Paused' : 'Active'}</span></td>
+      ${admin ? `<td><div class="btnrow" style="flex-wrap:nowrap">${a.origin === 'ui' ? `<button class="btn" data-action="app-edit" data-id="${esc(a.key)}">Edit</button><button class="btn" data-action="app-status" data-id="${esc(a.key)}">${a.status === 'paused' ? 'Resume' : 'Pause'}</button>` : '<span class="small muted">Edit qivvra.config.yaml</span>'}</div></td>` : ''}</tr>`).join('')}
+    </tbody></table></div></div>`;
+}
+async function loadApps() { const r = await api('/api/ui/applications'); if (r.ok) LIVE.apps = r.data.applications; }
 function viewIntegrations() {
-  if (!LIVE.platform) { loadPlatform().then(() => { if (route() === 'integrations') render(); }); return `<div class="ph"><div><h1>Integrations</h1><p class="sub">Loading live status…</p></div></div>`; }
+  if (!LIVE.platform || !LIVE.apps) { Promise.all([LIVE.platform ? null : loadPlatform(), LIVE.apps ? null : loadApps()]).then(() => { if (route() === 'integrations' && LIVE.platform && LIVE.apps) render(); }); return `<div class="ph"><div><h1>Integrations</h1><p class="sub">Loading live status…</p></div></div>`; }
+  const admin = ME.sysRole === 'Admin';
+  const head = `<div class="ph"><div><h1>Integrations</h1><p class="sub">Live status of the systems QIVVRA reads from and reports to, per application.</p></div><div class="acts"><button class="btn" data-action="refresh-platform">Refresh</button>${admin ? '<button class="btn primary" data-action="app-add">Add application</button>' : ''}</div></div>`;
+  const r = selRepo();
+  if (!r) return head + `<div class="card" style="max-width:680px;margin:30px auto;text-align:center;padding:36px 32px"><h2 style="margin:0 0 8px">No application onboarded yet</h2><p class="muted" style="margin:0 0 18px">Connect an application's GitHub repository, Jira project, team results, policy and verifier repositories, and QE environment. Each connection is tested before it is saved.</p>${admin ? '<button class="btn primary" data-action="app-add">Add application</button>' : '<p class="small muted">An Admin onboards applications.</p>'}</div>`;
   const M = integMap(), groups = ['Change producers', 'Enterprise context', 'Verification', 'Delivery'];
-  const err = M['QE environment'].status === 'Error' ? `<div class="notice red"><span><b>QE environment not reachable.</b> New assessments cannot verify until it reports the PR's commit at /version.</span></div>` : '';
-  return `<div class="ph"><div><h1>Integrations</h1><p class="sub">Live status of the systems QIVVRA reads from and reports to.</p></div><div class="acts"><button class="btn" data-action="refresh-platform">Refresh</button></div></div>
-    ${err}
+  const err = M['QE environment'].status === 'Error' ? `<div class="notice red"><span><b>${esc(r.app)}: QE environment not reachable.</b> New assessments cannot verify until it reports the PR's commit at /version.</span></div>` : '';
+  const paused = r.status === 'paused' ? `<div class="notice amber"><span><b>${esc(r.app)} is paused.</b> Pull request webhooks are acknowledged and ignored until an Admin resumes it.</span></div>` : '';
+  const picker = LIVE.platform.repos.length > 1 ? `<div class="btnrow" role="group" aria-label="Application" style="margin:0 0 14px"><span class="small muted">Showing</span>${LIVE.platform.repos.map(x => `<button class="btn${x.key === r.key ? ' navy' : ''}" data-action="app-sel" data-id="${esc(x.key)}" aria-pressed="${x.key === r.key}">${esc(x.app)}</button>`).join('')}</div>` : '';
+  return `${head}${appsTable()}${picker}${err}${paused}
     <div class="integ">${groups.map(g => `<section class="col" aria-label="${g}"><h2>${g}</h2>${Object.entries(M).filter(([, x]) => x.group === g).map(([n, x]) => `<button class="itile" data-action="integ" data-id="${esc(n)}"><span class="ic">${x.ic}</span><span><b>${esc(n)}</b><small class="s-${x.status}">${x.status}</small></span></button>`).join('')}</section>`).join('')}</div>`;
 }
 function integDetail(name) {
@@ -434,12 +461,14 @@ function integDetail(name) {
 }
 function viewProfiles() {
   if (!LIVE.platform) { loadPlatform().then(() => { if (route() === 'profiles') render(); }); return `<div class="ph"><div><h1>Assurance profiles</h1><p class="sub">Loading…</p></div></div>`; }
-  const r = LIVE.platform.repos[0], pr = r.policyRepo.profile || {}, pols = r.policyRepo.policies;
+  const r = selRepo();
+  if (!r) return `<div class="ph"><div><h1>Assurance profiles</h1><p class="sub">No application onboarded yet. Profiles come from each application's policy repository.</p></div></div>`;
+  const pr = r.policyRepo.profile || {}, pols = r.policyRepo.policies;
   const rules = (pr.disposition || []).map(d => `${d.when} → ${String(d.result).replace(/_/g, ' ')}`);
   const mappings = pols.flatMap(p => p.obligations.map(o => [`${o.id}`, `${o.evidence.verifier}/${o.evidence.check}`]));
-  return `<div class="ph"><div><h1>Assurance profiles</h1><p class="sub">Profiles decide which obligations matter, who says so, what blocks, and which verifiers produce evidence. Source: vendorpay-policies@${esc(r.policyRepo.commit || '—')}.</p></div></div>
+  return `<div class="ph"><div><h1>Assurance profiles</h1><p class="sub">Profiles decide which obligations matter, who says so, what blocks, and which verifiers produce evidence. Source: ${esc(repoLabel(r.policySource))}@${esc(r.policyRepo.commit || '—')}.</p></div></div>
     <div class="grid2 grid-side">
-      <div class="plist"><button class="pitem on"><b>${esc(pr.title || pr.id || 'Profile')}</b><div class="small muted">Used by ${esc(r.app)} (${esc(r.github)})</div></button></div>
+      <div class="plist">${LIVE.platform.repos.map(x => { const xp = x.policyRepo.profile || {}; return `<button class="pitem${x.key === r.key ? ' on' : ''}" data-action="app-sel" data-id="${esc(x.key)}"><b>${esc(xp.title || xp.id || 'Profile')}</b><div class="small muted">Used by ${esc(x.app)} (${esc(x.github)})</div></button>`; }).join('')}</div>
       <div class="card"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start"><div><h2 style="margin:0">${esc(pr.title || pr.id)}</h2><p class="small muted" style="margin:4px 0 0">Profile <span class="mono">${esc(pr.id)}</span> · Owner ${esc(pr.owner || '')} · changed only through a reviewed pull request.</p></div>${gate(can('admin'), `<button class="btn" data-action="profile-version">New version</button>`, NEEDS.admin)}</div>
         <div class="kv small" style="margin-top:16px;grid-template-columns:190px minmax(0,1fr)">
           <div>Authorities</div><div>${esc((pr.authorities || []).join(', '))}</div>
@@ -519,7 +548,7 @@ function exceptionDrawer(o, vm) {
   const area = (o.authority.owner.match(/@[\w.-]+\/([\w.-]+)/) || [])[1] || 'finance-controls';
   const folder = area.split('-')[0];
   const yaml = `apiVersion: qivvra/v1\nkind: Exception\nid: EXC-0001\npolicy: ${o.authority.id}\nobligations: [${o.id}]\nscope:\n  repository: ${vm.change.repository}\n  jira: ${vm.id}\nreason: <why this change may ship before the obligation is met>\ncompensating_control: <what reduces the risk meanwhile>\napproved_by: "${o.authority.owner}"\ngranted: ${today.toISOString().slice(0, 10)}\nexpires: ${exp}\n`;
-  return `<p class="small" style="margin:0">Exceptions are not clicked into existence. They are a file in <b>vendorpay-policies</b>, added by pull request and approved by the rule's owner (<span class="mono">${esc(o.authority.owner)}</span>) through CODEOWNERS. The validator rejects exceptions to rules that allow none, and anything longer than the rule's maximum.</p>
+  return `<p class="small" style="margin:0">Exceptions are not clicked into existence. They are a file in <b>${esc(polName(vm.change))}</b>, added by pull request and approved by the rule's owner (<span class="mono">${esc(o.authority.owner)}</span>) through CODEOWNERS. The validator rejects exceptions to rules that allow none, and anything longer than the rule's maximum.</p>
     <div class="trace"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2>exceptions/${esc(folder)}/EXC-0001.yaml</h2><button class="copy" data-action="copy" data-text="${esc(yaml)}">Copy</button></div><div class="rows" style="display:block;white-space:pre-wrap;font-family:var(--mono);font-size:12.5px">${esc(yaml)}</div></div>
     <p class="small muted" style="margin:0">After the pull request merges, re-run assurance. The exception then shows here, in the assurance case and on the pull request.</p>`;
 }
@@ -535,8 +564,8 @@ document.addEventListener('click', e => {
     case 'view-rev': stop(); LIVE.rev[S.changeId] = id; LIVE.caseRev[S.changeId] = id; render(); break;
     case 'case-rev': stop(); LIVE.caseRev[S.changeId] = id; render(); break;
     case 'exception': stop(); { const vm = curVM(); const o = vm.obls.find(x => x.id === id); openDrawer('Propose exception', `${esc(o.id)} · through the policy repository`, exceptionDrawer(o, vm)); } break;
-    case 'refresh-platform': stop(); LIVE.platform = null; render(); break;
-    case 'profile-version': stop(); toast('Profiles change through a pull request on vendorpay-policies, approved by its CODEOWNERS.'); break;
+    case 'refresh-platform': stop(); LIVE.platform = null; LIVE.apps = null; render(); break;
+    case 'profile-version': stop(); toast(`Profiles change through a pull request on ${repoLabel((selRepo() || {}).policySource) || 'the policy repository'}, approved by its CODEOWNERS.`); break;
     case 'route': case 'decide': case 'return-finding': case 'import-rev': case 'revoke': case 'exc-approve': case 'exc-reject':
       stop(); toast('In the live product this happens on GitHub: findings go to the PR automatically, new commits arrive by webhook, and rules and exceptions change by pull request to the policy repository.'); break;
     case 'flow': case 'reset-arm': case 'reset-do': case 'reset-cancel': stop(); break;
@@ -610,6 +639,224 @@ function startPolling() {
   LIVE.timer = setTimeout(tick, anyRunning() ? 3000 : 15000);
 }
 
+/* ---------- Add application: what an Admin gives QIVVRA, each part tested before saving ---------- */
+const WIZ_STEPS = [
+  ['application', 'Application', 'Name it and give the key the policy repository uses for it.'],
+  ['github', 'GitHub', 'The repository whose pull requests QIVVRA assures, and the branch they merge into.'],
+  ['jira', 'Jira', 'Where stories and acceptance criteria live. The PR title or branch names the issue.'],
+  ['xray', 'Team results', "Where the team's CI leaves its JUnit results per commit (as imported to Xray). Context only."],
+  ['policies', 'Policy repository', 'The rules this application is assured against, owned by their authorities.'],
+  ['verifiers', 'Verifiers repository', "QIVVRA's own checks for this application, one per obligation."],
+  ['environment', 'QE environment', 'Where each pull request commit is deployed. It must report its commit at /version.'],
+  ['identities', 'Test identities', "QIVVRA's own logins in the application, one per role. Stored encrypted."],
+  ['review', 'Review and create', 'Everything is tested again on the server before it is saved.'],
+];
+const blankDraft = () => ({
+  key: '', name: '',
+  github: { repository: '', base_branch: 'main', adapter: 'api', path: '' },
+  jira: { project: '', adapter: 'cloud', base_url: '', email: '', token: '', path: '' },
+  xray: { path: 'team-results', wait_seconds: 600 },
+  policies: { source: '', token: '' }, verifiers: { source: '', token: '' },
+  environment: { name: 'qe', base_url: '', wait_for_commit_seconds: 900, log_path: '' },
+  identities: [],
+});
+function startWizard(draft, editing, secretsSet) {
+  LIVE.wiz = { step: 0, draft: draft || blankDraft(), editing: editing || null, secretsSet: secretsSet || [], results: {}, busy: false, saved: null, saveErr: null };
+  ['jira', 'policies', 'verifiers'].forEach(k => { LIVE.wiz.draft[k] = LIVE.wiz.draft[k] || {}; LIVE.wiz.draft[k].token = ''; });
+  (LIVE.wiz.draft.identities || []).forEach(i => { i.value = ''; });
+  go('onboard');
+}
+const wget = (o, path) => path.split('.').reduce((x, k) => (x == null ? x : x[k]), o);
+function wset(o, path, v) { const ks = path.split('.'); const last = ks.pop(); const t = ks.reduce((x, k) => (x[k] = x[k] || {}), o); t[last] = v; }
+function wfield(label, path, o = {}) {
+  const W = LIVE.wiz, v = wget(W.draft, path);
+  const id = 'wf-' + path.replace(/\W/g, '-');
+  const secretSet = o.secret && W.secretsSet.includes(o.secret);
+  const input = o.options
+    ? `<select id="${id}" data-wf="${path}" data-wf-redraw="1">${o.options.map(([val, txt]) => `<option value="${esc(val)}"${val === v ? ' selected' : ''}>${esc(txt)}</option>`).join('')}</select>`
+    : `<input id="${id}" data-wf="${path}" type="${o.type || 'text'}" value="${esc(v == null ? '' : v)}"${o.ph || secretSet ? ` placeholder="${esc(secretSet ? 'Stored · leave blank to keep' : o.ph)}"` : ''}${o.type === 'password' ? ' autocomplete="new-password"' : ' autocomplete="off" spellcheck="false"'}${o.disabled ? ' disabled' : ''}${o.num ? ' inputmode="numeric"' : ''}>`;
+  return `<div class="field"><label for="${id}">${esc(label)}</label>${input}${o.help ? `<span class="small muted">${o.help}</span>` : ''}</div>`;
+}
+function stepForm(key) {
+  const W = LIVE.wiz, d = W.draft;
+  switch (key) {
+    case 'application': return wfield('Display name', 'name', { ph: 'VendorPay', help: 'What people call it. Shown on every screen and in PR comments.' })
+      + wfield('Application key', 'key', { ph: 'vendorpay', disabled: !!W.editing, help: 'Must match the key in the policy repository\'s <span class="mono">catalog/components.yaml</span>. It cannot change later.' });
+    case 'github': return wfield('Repository', 'github.repository', { ph: 'your-org/vendorpay-app', help: 'owner/name on GitHub.' })
+      + wfield('Base branch', 'github.base_branch', { ph: 'main', help: 'Pull requests into this branch are assured. Make <span class="mono">qivvra/assurance</span> a required check on it.' })
+      + wfield('Read changes through', 'github.adapter', { options: [['api', 'GitHub API (organisation GitHub App or token)'], ['local-git', 'Local clone on the engine host (demo)']] })
+      + (d.github.adapter === 'local-git' ? wfield('Local clone path', 'github.path', { ph: '/home/qivvra/repos/vendorpay-app' }) : '');
+    case 'jira': return wfield('Project key', 'jira.project', { ph: 'VP' })
+      + wfield('Connection', 'jira.adapter', { options: [['cloud', 'Jira Cloud (REST API)'], ['file', 'Issue files on the engine host (demo)']] })
+      + (d.jira.adapter === 'cloud'
+        ? wfield('Site URL', 'jira.base_url', { ph: 'https://yourcompany.atlassian.net' }) + wfield('Service account email', 'jira.email', { ph: 'qivvra@yourcompany.com' })
+          + wfield('API token', 'jira.token', { type: 'password', secret: 'JIRA_TOKEN', ph: 'Atlassian API token', help: 'Read-only access to the project is enough. Stored encrypted; never shown again.' })
+        : wfield('Issue folder', 'jira.path', { ph: 'fixtures/jira', help: 'One <span class="mono">&lt;KEY&gt;.json</span> per issue.' }));
+    case 'xray': return wfield('Results folder', 'xray.path', { ph: 'team-results', help: 'The team CI writes <span class="mono">&lt;commit&gt;/junit.xml</span> here. Relative paths are under the engine\'s folder.' })
+      + wfield('Wait for results (seconds)', 'xray.wait_seconds', { num: 1, help: 'How long QIVVRA waits for the team\'s results after QE runs the commit.' })
+      + `<div class="notice info" style="margin:0"><span>The team's results are shown as context. They never decide the disposition.</span></div>`;
+    case 'policies': return wfield('Git URL or checkout path', 'policies.source', { ph: 'https://github.com/your-org/vendorpay-policies.git', help: 'QIVVRA clones a URL and pulls <b>main</b> before every assessment.' })
+      + wfield('Access token (private repositories)', 'policies.token', { type: 'password', secret: 'POLICIES_GIT_TOKEN', ph: 'Optional · read-only', help: 'Read-only. Stored encrypted.' });
+    case 'verifiers': return wfield('Git URL or checkout path', 'verifiers.source', { ph: 'https://github.com/your-org/qivvra-verifiers.git', help: 'Each check is named <span class="mono">Vn/check</span>, as the policy obligations reference it.' })
+      + wfield('Access token (private repositories)', 'verifiers.token', { type: 'password', secret: 'VERIFIERS_GIT_TOKEN', ph: 'Optional · read-only', help: 'Read-only. Stored encrypted.' });
+    case 'environment': return wfield('Environment name', 'environment.name', { ph: 'qe' })
+      + wfield('Base URL', 'environment.base_url', { ph: 'https://qe.vendorpay.internal', help: 'QIVVRA calls <span class="mono">/version</span> and verifies only when it reports the pull request\'s commit.' })
+      + wfield('Wait for deploy (seconds)', 'environment.wait_for_commit_seconds', { num: 1, help: 'If QE never reports the commit, the result is INDETERMINATE, never READY.' })
+      + wfield('Application log file', 'environment.log_path', { ph: '/var/log/vendorpay/app.log', help: 'Optional. Lets the verifiers check that logs never hold sensitive data.' });
+    case 'identities': {
+      const rows = d.identities.map((r, i) => `<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end">
+        ${wfield(i ? '' : 'Variable', `identities.${i}.name`, { ph: 'VP_OPS' })}${wfield(i ? '' : 'Value', `identities.${i}.value`, { type: /PASS|TOKEN|SECRET/.test(r.name) ? 'password' : 'text', secret: r.name, ph: 'login or password' })}
+        <button class="btn" data-action="wiz-id-del" data-id="${i}" aria-label="Remove ${esc(r.name || 'row')}">Remove</button></div>`).join('');
+      const found = (W.results.verifiers && W.results.verifiers.found && W.results.verifiers.found.envVars) || [];
+      const missing = found.filter(n => !d.identities.some(r => r.name === n));
+      return `<p class="small" style="margin:0">QIVVRA signs in to the application as itself, one login per role, never with the team's test accounts.</p>${rows || '<p class="small muted" style="margin:0">No identities yet.</p>'}
+        <div class="btnrow"><button class="btn" data-action="wiz-id-add">Add variable</button>${missing.length ? `<button class="btn" data-action="wiz-id-detect">Add the ${missing.length} the verifiers read</button>` : ''}</div>
+        ${found.length ? `<p class="small muted" style="margin:0">The verifiers read: <span class="mono">${found.map(esc).join(', ')}</span></p>` : ''}`;
+    }
+    case 'review': return reviewPanel();
+  }
+  return '';
+}
+const ICON = { pass: ['✓', 'var(--green-text)'], warn: ['!', 'var(--amber-text)'], fail: ['✕', 'var(--red-text)'] };
+function resultBox(res) {
+  if (!res) return '';
+  const head = { pass: 'All checks passed', warn: 'Passed with warnings', fail: 'Fix the failed checks' }[res.status];
+  return `<div role="status" style="border:1px solid var(--${res.status === 'pass' ? 'green' : res.status === 'warn' ? 'amber' : 'red'}-line);background:var(--${res.status === 'pass' ? 'green' : res.status === 'warn' ? 'amber' : 'red'}-tint);border-radius:10px;padding:12px 14px">
+    <b style="color:${ICON[res.status][1]}">${head}</b>
+    <ul style="list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px">${res.checks.map(c => `<li class="small" style="display:grid;grid-template-columns:18px minmax(0,1fr);gap:6px"><b aria-hidden="true" style="color:${ICON[c.status][1]}">${ICON[c.status][0]}</b><span><b>${esc(c.label)}</b>${c.detail ? ` · <span style="overflow-wrap:anywhere">${esc(c.detail)}</span>` : ''}</span></li>`).join('')}</ul></div>`;
+}
+function reviewPanel() {
+  const W = LIVE.wiz, d = W.draft;
+  if (W.saved) return savedPanel();
+  const row = (k, label, v) => { const r = W.results[k]; const st = r ? r.status : null; return `<div>${esc(label)}</div><div>${v}${st ? ` <b style="color:${ICON[st][1]}" title="${st}">${ICON[st][0]}</b>` : ' <span class="small muted">not tested</span>'}</div>`; };
+  const secretLabel = (val, name) => val ? 'new value entered' : (W.secretsSet.includes(name) ? 'stored' : 'none');
+  return `<div class="kv small" style="grid-template-columns:170px minmax(0,1fr)">
+    ${row('application', 'Application', `<b>${esc(d.name)}</b> <span class="mono">(${esc(d.key)})</span>`)}
+    ${row('github', 'GitHub', `<span class="mono">${esc(d.github.repository)}</span> → ${esc(d.github.base_branch)} · ${d.github.adapter === 'api' ? 'GitHub API' : 'local clone'}`)}
+    ${row('jira', 'Jira', `${esc(d.jira.project)} · ${d.jira.adapter === 'cloud' ? `${esc(d.jira.base_url)} as ${esc(d.jira.email)} · token ${secretLabel(d.jira.token, 'JIRA_TOKEN')}` : 'issue files'}`)}
+    ${row('xray', 'Team results', `<span class="mono">${esc(d.xray.path)}</span> · wait ${esc(d.xray.wait_seconds)} s`)}
+    ${row('policies', 'Policy repository', `<span class="mono">${esc(d.policies.source)}</span>`)}
+    ${row('verifiers', 'Verifiers', `<span class="mono">${esc(d.verifiers.source)}</span>`)}
+    ${row('environment', 'QE environment', `<span class="mono">${esc(d.environment.base_url)}</span> · wait ${esc(d.environment.wait_for_commit_seconds)} s`)}
+    ${row('identities', 'Test identities', d.identities.length ? d.identities.map(i => `<span class="mono">${esc(i.name)}</span>`).join(', ') : 'built-in defaults')}
+  </div>
+  ${W.saveErr ? `<div class="notice red" style="margin:0"><span>${esc(W.saveErr)}</span></div>` : ''}
+  <p class="small muted" style="margin:0">Creating it records who did it in the platform audit log. Credentials are stored encrypted and never shown again.</p>`;
+}
+function savedPanel() {
+  const W = LIVE.wiz, g = W.saved.github;
+  const copy = (t) => `<button class="copy" data-action="copy" data-text="${esc(t)}">Copy</button>`;
+  return `<div class="notice" style="margin:0;background:var(--green-tint);border-color:var(--green-line)"><span><b style="color:var(--green-text)">${esc(W.draft.name)} is ${W.editing ? 'updated' : 'onboarded'}.</b> The next pull request on <span class="mono">${esc(g.repository)}</span> starts an assessment.</span></div>
+    <h3 style="margin:4px 0 0;font-size:14px">On GitHub (once, unless the QIVVRA GitHub App does it for you)</h3>
+    <div class="kv small" style="grid-template-columns:150px minmax(0,1fr)">
+      <div>Webhook payload URL</div><div><span class="mono">${esc(g.webhookUrl)}</span> ${copy(g.webhookUrl)}</div>
+      <div>Content type</div><div class="mono">${esc(g.contentType)}</div>
+      <div>Secret</div><div>The engine's <span class="mono">WEBHOOK_SECRET</span></div>
+      <div>Events</div><div>Pull requests</div>
+      <div>Branch protection</div><div>On <span class="mono">${esc(g.base)}</span>, require the status check <span class="mono">${esc(g.requiredCheck)}</span> ${copy(g.requiredCheck)}</div>
+    </div>
+    <p class="small muted" style="margin:0">In the Linux demo kit, <span class="mono">configure-github.sh</span> sets both.</p>`;
+}
+function viewOnboard() {
+  const W = LIVE.wiz;
+  if (!W) { startWizardLater(); return '<div class="ph"><div><h1>Add application</h1></div></div>'; }
+  const [key, title, sub] = WIZ_STEPS[W.step];
+  const res = W.results[key];
+  const steps = WIZ_STEPS.map(([k, t], i) => { const r = W.results[k]; const st = r ? r.status : null;
+    return `<li><button class="wiz-step${i === W.step ? ' on' : ''}" data-action="wiz-go" data-id="${i}"${i === W.step ? ' aria-current="step"' : ''}><span class="n" style="${st ? `background:${ICON[st][1]};border-color:${ICON[st][1]};color:#fff` : ''}">${st ? ICON[st][0] : i + 1}</span>${esc(t)}</button></li>`; }).join('');
+  const isReview = key === 'review', saved = !!W.saved;
+  const canNext = res && res.status !== 'fail';
+  const actions = saved ? `<button class="btn primary" data-action="wiz-done">Open Integrations</button>`
+    : isReview ? `<button class="btn" data-action="wiz-back">Back</button><button class="btn primary" data-action="wiz-save"${W.busy ? ' disabled' : ''}>${W.busy ? '<span class="st run sm" aria-hidden="true"></span>Testing everything…' : W.editing ? 'Save changes' : 'Create application'}</button>`
+    : `${W.step ? '<button class="btn" data-action="wiz-back">Back</button>' : ''}<button class="btn" data-action="wiz-test"${W.busy ? ' disabled' : ''}>${W.busy ? '<span class="st run sm" aria-hidden="true"></span>Testing…' : 'Test connection'}</button><button class="btn primary" data-action="wiz-next"${canNext ? '' : ' disabled title="Test this step first"'}>Next</button>`;
+  return `<div class="ph"><div><h1>${W.editing ? `Edit ${esc(W.draft.name)}` : 'Add application'}</h1><p class="sub">Connect one application to QIVVRA. Each connection is tested for real before it is saved.</p></div><div class="acts"><button class="btn" data-action="wiz-cancel">${saved ? 'Close' : 'Cancel'}</button></div></div>
+    <div class="wiz">
+      <nav aria-label="Steps"><ol class="wiz-steps">${steps}</ol></nav>
+      <section class="card" aria-labelledby="wiz-h" style="display:flex;flex-direction:column;gap:14px;min-width:0">
+        <div><p class="small muted" style="margin:0">Step ${W.step + 1} of ${WIZ_STEPS.length}</p><h2 id="wiz-h" style="margin:2px 0 4px">${esc(title)}</h2><p class="small muted" style="margin:0">${esc(sub)}</p></div>
+        <form id="wiz-form" style="display:flex;flex-direction:column;gap:12px" onsubmit="return false">${stepForm(key)}</form>
+        <div id="wiz-res">${isReview ? '' : resultBox(res)}</div>
+        <div class="btnrow" style="justify-content:flex-end">${actions}</div>
+      </section>
+    </div>`;
+}
+function startWizardLater() { setTimeout(() => { if (!LIVE.wiz && route() === 'onboard') startWizard(); }, 0); }
+async function wizTest() {
+  const W = LIVE.wiz, key = WIZ_STEPS[W.step][0];
+  W.busy = true; render();
+  const r = await api('/api/ui/applications/test', { method: 'POST', body: { step: key, draft: W.draft, editing: W.editing } });
+  W.busy = false;
+  W.results[key] = r.ok ? r.data : { step: key, status: 'fail', checks: [{ label: 'Test', status: 'fail', detail: r.data.message || `HTTP ${r.status}` }] };
+  // The verifiers tell us which login variables they read: offer them on the identities step.
+  if (key === 'verifiers' && r.ok && r.data.found && r.data.found.envVars && !W.draft.identities.length) W.draft.identities = r.data.found.envVars.map(n => ({ name: n, value: '' }));
+  render();
+  const box = $('#wiz-res'); if (box) box.scrollIntoView({ block: 'nearest' });
+}
+async function wizSave() {
+  const W = LIVE.wiz;
+  W.busy = true; W.saveErr = null; render();
+  const r = await api(W.editing ? `/api/ui/applications/${encodeURIComponent(W.editing)}` : '/api/ui/applications', { method: W.editing ? 'PUT' : 'POST', body: { draft: W.draft } });
+  W.busy = false;
+  if (r.ok) { W.saved = r.data; (r.data.results || []).forEach(x => { W.results[x.step] = x; }); LIVE.platform = null; LIVE.apps = null; toast(`${W.draft.name} ${W.editing ? 'updated' : 'onboarded'}.`); }
+  else if (r.status === 422) {
+    (r.data.results || []).forEach(x => { W.results[x.step] = x; });
+    const bad = (r.data.results || []).filter(x => x.status === 'fail').map(x => WIZ_STEPS.find(s => s[0] === x.step)[1]);
+    W.saveErr = `Not saved. These steps fail now: ${bad.join(', ')}. Open them to see why.`;
+  } else W.saveErr = r.data.message || `Not saved (HTTP ${r.status}).`;
+  render();
+}
+FY_GO['add-app'] = () => startWizard();
+document.addEventListener('input', e => {
+  const el = e.target; if (!el.dataset || !el.dataset.wf || !LIVE.wiz) return;
+  e.stopImmediatePropagation();
+  const num = el.getAttribute('inputmode') === 'numeric';
+  wset(LIVE.wiz.draft, el.dataset.wf, num ? (el.value === '' ? '' : Number(el.value)) : el.value);
+  const key = WIZ_STEPS[LIVE.wiz.step][0];
+  if (LIVE.wiz.results[key]) { delete LIVE.wiz.results[key]; const box = $('#wiz-res'); if (box) box.innerHTML = ''; const nx = $('[data-action="wiz-next"]'); if (nx) { nx.disabled = true; nx.title = 'Test this step first'; } render_steps(); }
+}, true);
+document.addEventListener('change', e => {
+  const el = e.target; if (!el.dataset || !el.dataset.wfRedraw || !LIVE.wiz) return;
+  e.stopImmediatePropagation(); wset(LIVE.wiz.draft, el.dataset.wf, el.value); delete LIVE.wiz.results[WIZ_STEPS[LIVE.wiz.step][0]]; render();
+}, true);
+function render_steps() {
+  const W = LIVE.wiz; document.querySelectorAll('.wiz-step').forEach((b, i) => { const r = W.results[WIZ_STEPS[i][0]]; const n = b.querySelector('.n'); if (!r && n) { n.removeAttribute('style'); n.textContent = i + 1; } });
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-action]'); if (!t) return;
+  const a = t.dataset.action, id = t.dataset.id;
+  const W = LIVE.wiz;
+  const stop = () => { e.stopImmediatePropagation(); e.preventDefault(); };
+  switch (a) {
+    case 'app-add': stop(); startWizard(); break;
+    case 'app-sel': stop(); LIVE.appSel = id; render(); break;
+    case 'app-edit': stop(); api(`/api/ui/applications/${encodeURIComponent(id)}`).then(r => { if (r.ok) startWizard(r.data.draft, id, r.data.secretsSet); else toast(r.data.message || 'Could not open it.'); }); break;
+    case 'app-status': stop(); { const app = (LIVE.apps || []).find(x => x.key === id); const next = app && app.status === 'paused' ? 'active' : 'paused';
+      api(`/api/ui/applications/${encodeURIComponent(id)}/status`, { method: 'POST', body: { status: next } }).then(r => { toast(r.ok ? `${app.name} ${next === 'paused' ? 'paused: its pull requests are ignored until resumed' : 'resumed'}.` : (r.data.message || 'Failed.')); LIVE.platform = null; LIVE.apps = null; render(); }); } break;
+    case 'wiz-test': stop(); if (W && !W.busy) wizTest(); break;
+    case 'wiz-next': stop(); if (W && W.results[WIZ_STEPS[W.step][0]] && W.results[WIZ_STEPS[W.step][0]].status !== 'fail') { W.step++; render(); } break;
+    case 'wiz-back': stop(); if (W && W.step) { W.step--; render(); } break;
+    case 'wiz-go': stop(); if (W && !W.saved) { W.step = Number(id); render(); } break;
+    case 'wiz-save': stop(); if (W && !W.busy) wizSave(); break;
+    case 'wiz-cancel': case 'wiz-done': stop(); LIVE.wiz = null; LIVE.platform = null; LIVE.apps = null; go('integrations'); break;
+    case 'wiz-id-add': stop(); W.draft.identities.push({ name: '', value: '' }); delete W.results.identities; render(); break;
+    case 'wiz-id-del': stop(); W.draft.identities.splice(Number(id), 1); delete W.results.identities; render(); break;
+    case 'wiz-id-detect': stop(); { const found = (W.results.verifiers && W.results.verifiers.found && W.results.verifiers.found.envVars) || []; found.filter(n => !W.draft.identities.some(r => r.name === n)).forEach(n => W.draft.identities.push({ name: n, value: '' })); delete W.results.identities; render(); } break;
+  }
+}, true);
+if (!VALID.includes('onboard')) VALID.push('onboard');
+PAGE_NAMES.onboard = 'Add application';
+NAV_FOR.onboard = 'integrations';
+(() => { const st = document.createElement('style'); st.textContent = `
+.wiz{display:grid;grid-template-columns:230px minmax(0,1fr);gap:20px;align-items:start;max-width:1040px}
+.wiz-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;position:sticky;top:80px}
+.wiz-step{display:flex;gap:10px;align-items:center;width:100%;text-align:left;background:none;border:0;border-radius:8px;padding:8px 10px;font:inherit;font-size:13.5px;color:var(--slate-text);cursor:pointer}
+.wiz-step:hover{background:var(--neutral-tint)}
+.wiz-step.on{background:var(--teal-tint);color:var(--ink);font-weight:600}
+.wiz-step .n{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--line);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex:none;background:var(--surface)}
+.wiz-step.on .n{border-color:var(--teal);color:var(--teal)}
+@media (max-width:900px){.wiz{grid-template-columns:minmax(0,1fr)}.wiz-steps{position:static;flex-direction:row;overflow-x:auto;gap:4px;padding-bottom:4px}.wiz-step{white-space:nowrap;padding:6px 8px}}
+`; document.head.appendChild(st); })();
+
 /* ---------- Identities beyond the prototype's six: one per rule-owning authority ---------- */
 if (!ACCOUNTS.some(a => a.email === 'v.bose@qivvra.demo')) ACCOUNTS.splice(ACCOUNTS.length - 1, 0,
   { email: 'v.bose@qivvra.demo', short: 'V. Bose', name: 'Vikram Bose', role: 'Compliance Officer', tagRole: 'Compliance Officer', sysRole: 'Viewer', auth: ['Compliance'], initials: 'VB', job: 'Owns audit-trail rules and compliance exceptions' },
@@ -617,7 +864,7 @@ if (!ACCOUNTS.some(a => a.email === 'v.bose@qivvra.demo')) ACCOUNTS.splice(ACCOU
 /* Authority holders review their area's rules on every application, so they are not scoped to one. */
 function access(a) {
   a = a || ME;
-  if (a.sysRole === 'Admin') return { routes: ['home', 'integrations', 'profiles', 'org-settings'], scope: 'none' };
+  if (a.sysRole === 'Admin') return { routes: ['home', 'integrations', 'onboard', 'profiles', 'org-settings'], scope: 'none' };
   if (a.sysRole === 'Assurance Lead') return { routes: ['home', ...ALL_CHANGE, 'integrations', 'profiles', 'org-settings'], scope: 'all' };
   if (a.sysRole === 'Contributor') return { routes: ['home', ...ALL_CHANGE, 'org-settings'], scope: a.auth.length ? 'all' : 'VendorPay' };
   return { routes: ['home', ...ALL_CHANGE, 'org-settings'], scope: 'all' };

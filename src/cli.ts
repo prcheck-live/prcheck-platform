@@ -6,14 +6,16 @@ import { config } from './config';
 import { pool } from './db';
 import { migrate } from './migrate';
 import { createAssessment, runAssessment } from './pipeline';
+import { loadApplications } from './applications';
 
 const args = process.argv.slice(2);
 const opt = (n: string) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : undefined; };
 
 (async () => {
+  await migrate();
+  await loadApplications();
   const repo = config.repositories[opt('repo') ?? 'vendorpay'];
   if (!repo || !opt('pr') || !opt('sha')) { console.error('Need --repo, --pr and --sha'); process.exit(2); }
-  await migrate();
   const req = {
     repo, prNumber: Number(opt('pr')), headSha: opt('sha')!, baseRef: opt('base') ?? repo.base_branch,
     headRef: opt('head-ref'), title: opt('title'), trigger: 'cli',
