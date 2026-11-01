@@ -1,6 +1,6 @@
 /**
  * Runs one assessment without a webhook, e.g. to re-assess a commit by hand.
- *   npm run assess -- --repo vendorpay --pr 482 --sha 88b666a --base main --head-ref feature/VP-184-bank-change --title "VP-184: ..."
+ *   npm run assess -- --repo vendorpay --pr 482 --sha ae50deb --base main --head-ref feature/VP-184-bank-change --title "VP-184: ..."
  */
 import { config } from './config';
 import { pool } from './db';

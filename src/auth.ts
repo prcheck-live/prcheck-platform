@@ -20,6 +20,8 @@ export const ACCOUNTS: Account[] = [
   { email: 'm.iyer@qivvra.demo', short: 'M. Iyer', name: 'Meera Iyer', role: 'Finance Controller', tagRole: 'Finance Controller', sysRole: 'Viewer', auth: ['Finance'], initials: 'MI', job: 'Owns finance rules and exceptions' },
   { email: 's.qureshi@qivvra.demo', short: 'S. Qureshi', name: 'Sana Qureshi', role: 'Security Architect', tagRole: 'Security Architect', sysRole: 'Contributor', auth: ['Security'], initials: 'SQ', job: 'Reviews security obligations and evidence' },
   { email: 'k.shah@qivvra.demo', short: 'K. Shah', name: 'Karan Shah', role: 'Release Manager', tagRole: 'Release Manager', sysRole: 'Viewer', auth: [], initials: 'KS', job: 'Knows what can ship, and its limits' },
+  { email: 'v.bose@qivvra.demo', short: 'V. Bose', name: 'Vikram Bose', role: 'Compliance Officer', tagRole: 'Compliance Officer', sysRole: 'Viewer', auth: ['Compliance'], initials: 'VB', job: 'Owns audit-trail rules and compliance exceptions' },
+  { email: 'a.pillai@qivvra.demo', short: 'A. Pillai', name: 'Arjun Pillai', role: 'Platform Engineering Lead', tagRole: 'Platform Lead', sysRole: 'Contributor', auth: ['Platform'], initials: 'AP', job: 'Owns build, deploy and environment rules' },
   { email: 'p.nair@qivvra.demo', short: 'P. Nair', name: 'Priya Nair', role: 'Platform Admin', tagRole: 'Platform Admin', sysRole: 'Admin', auth: [], initials: 'PN', job: 'Connects tools, manages users and profiles' },
 ];
 
@@ -45,7 +47,7 @@ export const CHANGE_ROUTES = ['command', 'change', 'revisions', 'graph', 'obliga
 export function access(a: Account) {
   if (a.sysRole === 'Admin') return { routes: ['home', 'integrations', 'profiles', 'org-settings'], scope: 'none' };
   if (a.sysRole === 'Assurance Lead') return { routes: ['home', ...CHANGE_ROUTES, 'integrations', 'profiles', 'org-settings'], scope: 'all' };
-  if (a.sysRole === 'Contributor') return { routes: ['home', ...CHANGE_ROUTES, 'org-settings'], scope: a.auth.includes('Security') ? 'all' : 'VendorPay' };
+  if (a.sysRole === 'Contributor') return { routes: ['home', ...CHANGE_ROUTES, 'org-settings'], scope: a.auth.length ? 'all' : 'VendorPay' };
   return { routes: ['home', ...CHANGE_ROUTES, 'org-settings'], scope: 'all' };
 }
 export const PERMS: Record<string, SysRole[]> = { run: ['Assurance Lead'], requestRerun: ['Contributor'], admin: ['Admin'], platform: ['Admin', 'Assurance Lead'] };

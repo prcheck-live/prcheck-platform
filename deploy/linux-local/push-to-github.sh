@@ -30,10 +30,10 @@ push vendorpay-policies; git -C "$ROOT/vendorpay-policies" push -q -u origin mai
 push qivvra-verifiers;   git -C "$ROOT/qivvra-verifiers"   push -q -u origin main
 push qivvra-platform;    git -C "$ROOT/qivvra-platform"    push -q -u origin main
 push vendorpay-app
-git -C "$ROOT/vendorpay-app" push -q -u origin main
+git -C "$ROOT/vendorpay-app" push -q -f -u origin main   # -f: safe to re-run after the demo history is regenerated
 git -C "$ROOT/vendorpay-app" push -q -f origin demo-commit-1 demo-commit-2 demo-commit-3   # the three PR commits, for demo-push.sh
 # The first commit of PR #482 only; demo-push.sh 2 and 3 bring the rest.
-git -C "$ROOT/vendorpay-app" push -q -f origin 8cafa75:refs/heads/feature/VP-184-bank-change
+git -C "$ROOT/vendorpay-app" push -q -f origin af51c26:refs/heads/feature/VP-184-bank-change
 echo "pushed   all repositories"
 
 # Teams referenced by CODEOWNERS in vendorpay-policies

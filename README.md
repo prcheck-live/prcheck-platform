@@ -41,20 +41,20 @@ scripts/demo.sh
 For each commit the script plays every actor: it deploys that commit as QE, runs the team's CI, sends a signed `pull_request` webhook, and waits for QIVVRA:
 
 ```
-=== PR #482 @ 8cafa75  VP-184: bank-change request and approval
+=== PR #482 @ af51c26  VP-184: bank-change request and approval
 Team CI tests="25" failures="0"
 QIVVRA  NOT READY — violated: FIN-001.1, FIN-002.1, FIN-002.3
-=== PR #482 @ 88b666a  VP-184: block self-approval of bank changes
+=== PR #482 @ ae50deb  VP-184: block self-approval of bank changes
 Team CI tests="26" failures="0"
 QIVVRA  NOT READY — violated: FIN-002.1, FIN-002.3
-=== PR #482 @ aaf2a60  VP-184: hold scheduled payments on bank change
+=== PR #482 @ 3f6e20d  VP-184: hold scheduled payments on bank change
 Team CI tests="29" failures="0"
 QIVVRA  READY — all 14 obligations supported
 ```
 
 Without `QIVVRA_GITHUB_TOKEN`, statuses and PR comments go to `data/outbox/<assessment>/`. Sample output from a real run is in `docs/sample-run/`. The UI is at http://localhost:4000 while the engine runs (`npm run dev`); see **The UI** below.
 
-Re-assess one commit by hand: `npm run assess -- --repo vendorpay --pr 482 --sha 88b666a --head-ref feature/VP-184-bank-change --title "VP-184: ..."`.
+Re-assess one commit by hand: `npm run assess -- --repo vendorpay --pr 482 --sha ae50deb --head-ref feature/VP-184-bank-change --title "VP-184: ..."`.
 
 ## Connecting the real systems
 

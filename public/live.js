@@ -610,6 +610,27 @@ function startPolling() {
   LIVE.timer = setTimeout(tick, anyRunning() ? 3000 : 15000);
 }
 
+/* ---------- Identities beyond the prototype's six: one per rule-owning authority ---------- */
+if (!ACCOUNTS.some(a => a.email === 'v.bose@qivvra.demo')) ACCOUNTS.splice(ACCOUNTS.length - 1, 0,
+  { email: 'v.bose@qivvra.demo', short: 'V. Bose', name: 'Vikram Bose', role: 'Compliance Officer', tagRole: 'Compliance Officer', sysRole: 'Viewer', auth: ['Compliance'], initials: 'VB', job: 'Owns audit-trail rules and compliance exceptions' },
+  { email: 'a.pillai@qivvra.demo', short: 'A. Pillai', name: 'Arjun Pillai', role: 'Platform Engineering Lead', tagRole: 'Platform Lead', sysRole: 'Contributor', auth: ['Platform'], initials: 'AP', job: 'Owns build, deploy and environment rules' });
+/* Authority holders review their area's rules on every application, so they are not scoped to one. */
+function access(a) {
+  a = a || ME;
+  if (a.sysRole === 'Admin') return { routes: ['home', 'integrations', 'profiles', 'org-settings'], scope: 'none' };
+  if (a.sysRole === 'Assurance Lead') return { routes: ['home', ...ALL_CHANGE, 'integrations', 'profiles', 'org-settings'], scope: 'all' };
+  if (a.sysRole === 'Contributor') return { routes: ['home', ...ALL_CHANGE, 'org-settings'], scope: a.auth.length ? 'all' : 'VendorPay' };
+  return { routes: ['home', ...ALL_CHANGE, 'org-settings'], scope: 'all' };
+}
+function homeLabel(a) {
+  a = a || ME;
+  if (a.sysRole === 'Admin') return 'Platform';
+  if (a.auth.length) return { Finance: 'Decisions', Security: 'Security review', Compliance: 'Compliance review', Platform: 'Platform review' }[a.auth[0]] || 'My rules';
+  if (a.sysRole === 'Assurance Lead') return 'My queue';
+  if (a.sysRole === 'Contributor') return 'My changes';
+  return 'Release readiness';
+}
+
 /* ---------- Boot ---------- */
 (() => { const st = document.createElement('style'); st.textContent = '.tl .e > div, .kv > div, .trace .rows span { overflow-wrap: anywhere; min-width: 0; }'; document.head.appendChild(st); })();
 (async () => {

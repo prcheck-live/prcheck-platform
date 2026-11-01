@@ -7,13 +7,13 @@
 #   GitHub      sends a signed pull_request webhook to the engine
 #   QIVVRA      gathers, freezes, verifies, decides and reports              (the real engine)
 #
-#   scripts/demo.sh            # default: PR #482 commits 8cafa75 88b666a aaf2a60
+#   scripts/demo.sh            # default: PR #482 commits af51c26 ae50deb 3f6e20d
 #
 # Needs PostgreSQL on localhost:5432 with the vendorpay and qivvra databases, and ports 3000 and 4000 free.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 APP=$(cd "$HERE/../vendorpay-app" && pwd)
-COMMITS=("${@:-8cafa75 88b666a aaf2a60}")
+COMMITS=("${@:-af51c26 ae50deb 3f6e20d}")
 COMMITS=(${COMMITS[@]})
 export WEBHOOK_SECRET=${WEBHOOK_SECRET:-qivvra-demo-secret}
 unset QIVVRA_GITHUB_TOKEN   # demo reports go to the outbox, never to a real repository
