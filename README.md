@@ -123,6 +123,8 @@ An Admin adds an application in the UI: **Integrations → Add application**. Ni
 | Test identities | QIVVRA's own logins, one per role (prefilled from what the verifiers read) | Every variable has a value |
 | Review and create | | **Every step is tested again on the server** before saving |
 
+The approved prototype (`ui/prototype.html`) has the same wizard with simulated tests, including a ready-made example (Claims Portal) and the failure cases; the live layer replaces it with these real tests.
+
 After saving, the application is live at once (no restart) and the screen shows the webhook URL and required check to set on GitHub. Admins can **Edit** (stored secrets are kept unless replaced) and **Pause** (webhooks are acknowledged and ignored). Every create, update, pause and resume is written to `platform_audit`.
 
 - Credentials are encrypted with AES-256-GCM using `QIVVRA_SECRET_KEY` (falls back to `WEBHOOK_SECRET`), and never returned by the API. Use a KMS or vault in production.

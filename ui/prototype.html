@@ -246,6 +246,14 @@ tr.row.cand td:first-child{box-shadow:inset 4px 0 0 var(--amber)}
 
 /* Drawer, toast */
 .scrim{position:fixed;inset:0;background:rgba(16,42,67,.28);z-index:39}
+.wiz{display:grid;grid-template-columns:230px minmax(0,1fr);gap:20px;align-items:start;max-width:1040px}
+.wiz-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;position:sticky;top:80px}
+.wiz-step{display:flex;gap:10px;align-items:center;width:100%;text-align:left;background:none;border:0;border-radius:8px;padding:8px 10px;font:inherit;font-size:13.5px;color:var(--slate-text);cursor:pointer}
+.wiz-step:hover{background:var(--neutral-tint)}
+.wiz-step.on{background:var(--teal-tint);color:var(--ink);font-weight:600}
+.wiz-step .n{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--line);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex:none;background:var(--surface)}
+.wiz-step.on .n{border-color:var(--teal);color:var(--teal)}
+@media (max-width:900px){.wiz{grid-template-columns:minmax(0,1fr)}.wiz-steps{position:static;flex-direction:row;overflow-x:auto;gap:4px;padding-bottom:4px}.wiz-step{white-space:nowrap;padding:6px 8px}}
 .drawer{position:fixed;top:0;right:0;bottom:0;width:min(520px,100%);background:var(--surface);border-left:1px solid var(--line);box-shadow:-12px 0 32px rgba(16,42,67,.14);z-index:40;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-right:env(safe-area-inset-right,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 .drawer header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:20px 24px 14px;border-bottom:1px solid var(--line)}
 .drawer header h2{margin:0;font-size:18px;color:var(--navy)}
@@ -761,6 +769,7 @@ function initState(fresh=true){
     graphObl:null, caseRev:null, profileSel:'vp', resetArm:false, showProducer:true,
     faults:{logSink:false,policyEngine:false,integrity:false}, running:null,
     others:{},
+    apps: pwSeedApps(), platformAudit: [], wiz: null,
     flow:{on:true, i:0, min:false, seen:{}},
     vp:{viewRev:'r1', runSeq: fresh ? 2082 : 2104, excSeq:31, returned:null,
       revs:{
@@ -933,13 +942,13 @@ function deriveGaps(vm){
 
 /* ================= Rendering ================= */
 const CHANGE_ROUTES = ['change','revisions','graph','obligations','gaps','evidence','case'];
-const NAV_FOR = {revisions:'change',graph:'change',gaps:'obligations'};
-const VALID = ['home','command','change','revisions','graph','obligations','gaps','evidence','case','integrations','profiles','org-settings'];
+const NAV_FOR = {revisions:'change',graph:'change',gaps:'obligations',onboard:'integrations'};
+const VALID = ['home','command','change','revisions','graph','obligations','gaps','evidence','case','integrations','onboard','profiles','org-settings'];
 /* ================= Access control: what each role can reach after sign-in ================= */
 const ALL_CHANGE = ['command','change','revisions','graph','obligations','gaps','evidence','case'];
 function access(a){
   a = a || ME;
-  if(a.sysRole==='Admin') return {routes:['home','integrations','profiles','org-settings'], scope:'none'};
+  if(a.sysRole==='Admin') return {routes:['home','integrations','onboard','profiles','org-settings'], scope:'none'};
   if(a.sysRole==='Assurance Lead') return {routes:['home',...ALL_CHANGE,'integrations','profiles','org-settings'], scope:'all'};
   if(a.sysRole==='Contributor') return {routes:['home',...ALL_CHANGE,'org-settings'], scope: a.auth.includes('Security') ? 'all' : 'VendorPay'};
   return {routes:['home',...ALL_CHANGE,'org-settings'], scope:'all'};
@@ -954,7 +963,7 @@ function homeLabel(a){ a = a || ME;
   if(a.sysRole==='Contributor') return 'My changes';
   return 'Release readiness';
 }
-const PAGE_NAMES = {home:'Home',command:'Command Center',change:'Changes',revisions:'Revisions',graph:'Traceability',obligations:'Obligations',gaps:'Gaps',evidence:'Evidence',case:'Assurance Cases',integrations:'Integrations',profiles:'Profiles','org-settings':'Settings'};
+const PAGE_NAMES = {home:'Home',command:'Command Center',change:'Changes',revisions:'Revisions',graph:'Traceability',obligations:'Obligations',gaps:'Gaps',evidence:'Evidence',case:'Assurance Cases',integrations:'Integrations',onboard:'Add application',profiles:'Profiles','org-settings':'Settings'};
 function buildNav(){
   const main = [['home',homeLabel()],['command','Command Center'],['change','Changes'],['obligations','Obligations'],['evidence','Evidence'],['case','Assurance Cases'],['integrations','Integrations']];
   const util = [['profiles','Profiles'],['org-settings', ME.sysRole==='Admin' ? 'Users and settings' : 'Settings']];
@@ -1000,7 +1009,7 @@ function render(){
   const ctx = $('#ctx');
   if(CHANGE_ROUTES.includes(r)){ ctx.hidden = false; ctx.innerHTML = ctxBar(curVM()); } else { ctx.hidden = true; ctx.innerHTML=''; }
   const v = $('#view');
-  const fn = {home:viewHome, command:viewCommand, change:viewChange, revisions:viewRevisions, graph:viewGraph, obligations:viewObligations, gaps:viewGaps, evidence:viewEvidence, case:viewCase, integrations:viewIntegrations, profiles:viewProfiles, 'org-settings':viewSettings}[r];
+  const fn = {home:viewHome, command:viewCommand, change:viewChange, revisions:viewRevisions, graph:viewGraph, obligations:viewObligations, gaps:viewGaps, evidence:viewEvidence, case:viewCase, integrations:viewIntegrations, onboard:pwViewOnboard, profiles:viewProfiles, 'org-settings':viewSettings}[r];
   v.innerHTML = fn();
   flowUpdate();
 }
@@ -1493,15 +1502,15 @@ function caseHeadline(vm){
 /* ---------- Integrations ---------- */
 const INTEG = [
   ['Change producers',[['GitHub','G','Connected','Pull requests, commits and revision hashes for VP-184 and 9 other changes.'],['Azure DevOps','A','Available'],['AI-DLC adapters','A','Available'],['Coding agents','C','Available']]],
-  ['Enterprise context',[['Jira / ADO Boards','J','Available'],['Confluence','C','Available'],['Policy repositories','P','Available'],['Architecture records','A','Available']]],
+  ['Enterprise context',[['Jira / ADO Boards','J','Available'],['Confluence','C','Available'],['Policy repositories','P','Connected','Each application\'s rules, owned by their authorities through CODEOWNERS, pulled from main before every assessment.'],['Architecture records','A','Available']]],
   ['Verification',[['Test frameworks','T','Connected','Playwright TypeScript verifiers V1–V5 executed by the QIVVRA runner.'],['Security scanners','S','Available'],['Policy engines','P','Connected','Resolves authoritative obligations (AUTH-009, BR-017, SEC-012, AUD-006) for assurance profiles.'],['Observability','O','Available']]],
   ['Delivery',[['CI/CD','C','Available'],['Release systems','R','Available'],['Change management','C','Available'],['Incident systems','I','Available']]]
 ];
 function integStatus(name, s){ if(name==='Policy engines' && S.faults.policyEngine) return 'Error'; return s; }
 function viewIntegrations(){
   const err = S.faults.policyEngine ? `<div class="notice red"><span><b>Policy engines: connection error.</b> Affected evidence source: authority resolution for every profile. Current dispositions stay valid because their evidence was bound before the error, but new assurance runs cannot resolve obligations.</span><button class="btn" data-action="nav" data-id="org-settings">Open settings</button></div>` : '';
-  return `<div class="ph"><div><h1>Integrations</h1><p class="sub">Connect change producers, enterprise context, verification sources, and delivery controls.</p></div></div>
-    ${err}
+  return `<div class="ph"><div><h1>Integrations</h1><p class="sub">Connect change producers, enterprise context, verification sources, and delivery controls.</p></div><div class="acts">${gate(can('admin'), `<button class="btn primary" data-action="pw-add">Add application</button>`, NEEDS.admin)}</div></div>
+    ${err}${pwAppsTable()}
     <div class="integ">${INTEG.map(([g,items])=>`<section class="col" aria-label="${g}"><h2>${g}</h2>${items.map(([n,ic,s])=>{ const st = integStatus(n,s); return `<button class="itile" data-action="integ" data-id="${esc(n)}"><span class="ic">${ic}</span><span><b>${esc(n)}</b><small class="s-${st.split(' ')[0]}">${st}</small></span></button>`; }).join('')}</section>`).join('')}</div>
     <div class="notice info" style="margin-top:22px;display:block"><b style="color:var(--medium)">Mature product shell</b><br><span class="small">The Conclave slice implements selected integrations deeply while the UI preserves the extensible product architecture.</span></div>`;
 }
@@ -1513,6 +1522,291 @@ function integDetail(name){
     : `<p>${esc(n)} is available for this organization but not connected. Connecting it requires an administrator to supply credentials and scope.</p><div class="kv small"><div>Status</div><div>Available</div><div>Role</div><div>${group}</div></div><p class="small muted">Nothing from ${esc(n)} contributes evidence to any current assurance case.</p><button class="btn" disabled>Configure (administrator)</button>`;
   return [n, body, group];
 }
+
+/* ---------- Applications and onboarding (Admin) ---------- */
+/* What an Admin gives QIVVRA for one application. Every step is "tested"; in this
+   prototype the tests are simulated from the inputs, in the platform they hit the real systems. */
+const PW_CATALOG = { /* keys registered in the policy repositories' catalog/components.yaml */
+  vendorpay:{profile:'VendorPay Financial Change v1',policies:6,obligations:14,components:7,verifiers:5,checks:14,missing:[]},
+  commerce:{profile:'Commerce Pricing Change v2',policies:4,obligations:9,components:5,verifiers:3,checks:9,missing:[]},
+  identity:{profile:'Identity Change v2',policies:5,obligations:12,components:4,verifiers:4,checks:12,missing:[]},
+  platform:{profile:'General Change v3',policies:3,obligations:6,components:3,verifiers:2,checks:6,missing:[]},
+  payments:{profile:'Payments Change v3',policies:3,obligations:8,components:3,verifiers:3,checks:8,missing:[]},
+  finance:{profile:'General Change v3',policies:3,obligations:7,components:3,verifiers:3,checks:7,missing:[]},
+  crm:{profile:'General Change v3',policies:2,obligations:5,components:2,verifiers:2,checks:5,missing:[]},
+  messaging:{profile:'General Change v3',policies:2,obligations:4,components:2,verifiers:2,checks:4,missing:[]},
+  people:{profile:'General Change v3',policies:2,obligations:5,components:2,verifiers:2,checks:5,missing:[]},
+  legal:{profile:'General Change v3',policies:2,obligations:4,components:2,verifiers:2,checks:4,missing:[]},
+  claims:{profile:'Claims Change v1',policies:4,obligations:12,components:5,verifiers:4,checks:11,missing:['CLM-003.2 (V4/claim-export-masked)']}
+};
+const PW_ENV = { claims:['CLM_ADJUSTER','CLM_SUPERVISOR','CLM_AUDITOR','CLM_PASSWORD'] };
+function pwSeedApps(){
+  const list = [['VendorPay','vendorpay','vendorpay/vendorpay-app','VP']];
+  const seen = new Set(['VendorPay']);
+  OTHERS.forEach(o=>{ if(seen.has(o.app)) return; seen.add(o.app); const k=o.app.toLowerCase(); list.push([o.app,k,`acme/${k}-service`,o.id.split('-')[0]]); });
+  return list.map(([name,key,repo,jira],i)=>({ key, name, status:'active', by:'P. Nair', at:`${String(2+i).padStart(2,'0')} Sep 2026`,
+    draft:{ key, name, github:{repository:repo, base_branch:'main', adapter:'api'}, jira:{project:jira, adapter:'cloud', base_url:'https://acme.atlassian.net', email:'qivvra@acme.com'},
+      xray:{path:`team-results/${key}`, wait_seconds:600}, policies:{source:`https://github.com/acme/${key}-policies.git`}, verifiers:{source:`https://github.com/acme/qivvra-verifiers-${key}.git`},
+      environment:{name:'qe', base_url:`https://qe.${key}.acme.internal`, wait_for_commit_seconds:900, log_path:`/var/log/${key}/app.log`}, identities:[] },
+    secretsSet:['JIRA_TOKEN'] }));
+}
+function pwAppsTable(){
+  const admin = can('admin');
+  return `<div class="card" style="padding:0;margin-bottom:22px"><div style="padding:16px 20px 10px"><h2 style="margin:0">Applications</h2><p class="small muted" style="margin:4px 0 0">Each application has its own repository, Jira project, policy and verifier repositories, and QE environment.</p></div>
+    <div class="tbl-wrap" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th>Application</th><th>GitHub</th><th>Jira</th><th>QE environment</th><th>Onboarded</th><th>Status</th>${admin?'<th></th>':''}</tr></thead><tbody>
+    ${S.apps.map(a=>`<tr><td><b>${esc(a.name)}</b><div class="mono small muted">${esc(a.key)}</div></td><td class="mono small">${esc(a.draft.github.repository)}</td><td>${esc(a.draft.jira.project)}</td><td class="mono small">${esc(a.draft.environment.base_url)}</td><td class="small">${esc(a.by)} · ${esc(a.at)}</td>
+      <td><span class="${a.status==='paused'?'s-Requires':'s-Connected'}">${a.status==='paused'?'Paused':'Active'}</span></td>
+      ${admin?`<td><div class="btnrow" style="flex-wrap:nowrap"><button class="btn" data-action="pw-edit" data-id="${esc(a.key)}">Edit</button><button class="btn" data-action="pw-status" data-id="${esc(a.key)}">${a.status==='paused'?'Resume':'Pause'}</button></div></td>`:''}</tr>`).join('')}
+    </tbody></table></div></div>`;
+}
+const PW_STEPS = [
+  ['application','Application','Name it and give the key the policy repository uses for it.'],
+  ['github','GitHub','The repository whose pull requests QIVVRA assures, and the branch they merge into.'],
+  ['jira','Jira','Where stories and acceptance criteria live. The PR title or branch names the issue.'],
+  ['xray','Team results',"Where the team's CI leaves its JUnit results per commit (as imported to Xray). Context only."],
+  ['policies','Policy repository','The rules this application is assured against, owned by their authorities.'],
+  ['verifiers','Verifiers repository',"QIVVRA's own checks for this application, one per obligation."],
+  ['environment','QE environment','Where each pull request commit is deployed. It must report its commit at /version.'],
+  ['identities','Test identities',"QIVVRA's own logins in the application, one per role. Stored encrypted."],
+  ['review','Review and create','Everything is tested again before it is saved.']
+];
+const PW_BLANK = () => ({ key:'', name:'', github:{repository:'',base_branch:'main',adapter:'api'}, jira:{project:'',adapter:'cloud',base_url:'',email:'',token:''},
+  xray:{path:'team-results',wait_seconds:600}, policies:{source:'',token:''}, verifiers:{source:'',token:''},
+  environment:{name:'qe',base_url:'',wait_for_commit_seconds:900,log_path:''}, identities:[] });
+const PW_EXAMPLE = () => ({ key:'claims', name:'Claims Portal', github:{repository:'acme/claims-portal',base_branch:'main',adapter:'api'},
+  jira:{project:'CLM',adapter:'cloud',base_url:'https://acme.atlassian.net',email:'qivvra@acme.com',token:'••••••••'},
+  xray:{path:'team-results/claims',wait_seconds:600}, policies:{source:'https://github.com/acme/claims-policies.git',token:''},
+  verifiers:{source:'https://github.com/acme/qivvra-verifiers-claims.git',token:''},
+  environment:{name:'qe',base_url:'https://qe.claims.acme.internal',wait_for_commit_seconds:900,log_path:'/var/log/claims/app.log'}, identities:[] });
+function pwStart(app){
+  S.wiz = { step:0, draft: app ? JSON.parse(JSON.stringify(app.draft)) : PW_BLANK(), editing: app ? app.key : null, secretsSet: app ? app.secretsSet.slice() : [], results:{}, busy:false, saved:false };
+  go('onboard');
+}
+const pwGet = (o,p) => p.split('.').reduce((x,k)=>x==null?x:x[k], o);
+function pwSet(o,p,v){ const ks=p.split('.'); const last=ks.pop(); const t=ks.reduce((x,k)=>(x[k]=x[k]||{}), o); t[last]=v; }
+function pwField(label, path, o={}){
+  const W = S.wiz, v = pwGet(W.draft, path), id = 'pw-'+path.replace(/\W/g,'-');
+  const stored = o.secret && W.secretsSet.includes(o.secret);
+  const input = o.options
+    ? `<select id="${id}" data-pw="${path}" data-pw-redraw="1">${o.options.map(([val,txt])=>`<option value="${esc(val)}"${val===v?' selected':''}>${esc(txt)}</option>`).join('')}</select>`
+    : `<input id="${id}" data-pw="${path}" type="${o.type||'text'}" value="${esc(v==null?'':v)}"${o.ph||stored?` placeholder="${esc(stored?'Stored · leave blank to keep':o.ph)}"`:''}${o.type==='password'?' autocomplete="new-password"':' autocomplete="off" spellcheck="false"'}${o.disabled?' disabled':''}${o.num?' inputmode="numeric"':''}>`;
+  return `<div class="field"><label for="${id}">${esc(label)}</label>${input}${o.help?`<span class="small muted">${o.help}</span>`:''}</div>`;
+}
+function pwForm(key){
+  const W = S.wiz, d = W.draft;
+  switch(key){
+    case 'application': return pwField('Display name','name',{ph:'Claims Portal',help:'What people call it. Shown on every screen and in PR comments.'})
+      + pwField('Application key','key',{ph:'claims',disabled:!!W.editing,help:'Must match the key in the policy repository\'s <span class="mono">catalog/components.yaml</span>. It cannot change later.'})
+      + (W.editing ? '' : `<div class="notice info" style="margin:0"><span>Walking through a demo? Fill every step with a sample application whose rules are already registered.</span><button class="btn" data-action="pw-example">Use example: Claims Portal</button></div>`);
+    case 'github': return pwField('Repository','github.repository',{ph:'acme/claims-portal',help:'owner/name on GitHub.'})
+      + pwField('Base branch','github.base_branch',{ph:'main',help:'Pull requests into this branch are assured. Make <span class="mono">qivvra/assurance</span> a required check on it.'})
+      + pwField('Read changes through','github.adapter',{options:[['api','GitHub API (organisation GitHub App)'],['local-git','Local clone on the engine host (demo)']]});
+    case 'jira': return pwField('Project key','jira.project',{ph:'CLM'})
+      + pwField('Connection','jira.adapter',{options:[['cloud','Jira Cloud (REST API)'],['file','Issue files on the engine host (demo)']]})
+      + (d.jira.adapter==='cloud' ? pwField('Site URL','jira.base_url',{ph:'https://yourcompany.atlassian.net'}) + pwField('Service account email','jira.email',{ph:'qivvra@yourcompany.com'})
+        + pwField('API token','jira.token',{type:'password',secret:'JIRA_TOKEN',ph:'Atlassian API token',help:'Read-only access to the project is enough. Stored encrypted; never shown again.'})
+        : pwField('Issue folder','jira.path',{ph:'fixtures/jira',help:'One <span class="mono">&lt;KEY&gt;.json</span> per issue.'}));
+    case 'xray': return pwField('Results folder','xray.path',{ph:'team-results',help:'The team CI writes <span class="mono">&lt;commit&gt;/junit.xml</span> here.'})
+      + pwField('Wait for results (seconds)','xray.wait_seconds',{num:1,help:'How long QIVVRA waits for the team\'s results after QE runs the commit.'})
+      + `<div class="notice info" style="margin:0"><span>The team's results are shown as context. They never decide the disposition.</span></div>`;
+    case 'policies': return pwField('Git URL or checkout path','policies.source',{ph:'https://github.com/acme/claims-policies.git',help:'QIVVRA clones it and pulls <b>main</b> before every assessment.'})
+      + pwField('Access token (private repositories)','policies.token',{type:'password',secret:'POLICIES_GIT_TOKEN',ph:'Optional · read-only',help:'Read-only. Stored encrypted.'});
+    case 'verifiers': return pwField('Git URL or checkout path','verifiers.source',{ph:'https://github.com/acme/qivvra-verifiers-claims.git',help:'Each check is named <span class="mono">Vn/check</span>, as the policy obligations reference it.'})
+      + pwField('Access token (private repositories)','verifiers.token',{type:'password',secret:'VERIFIERS_GIT_TOKEN',ph:'Optional · read-only',help:'Read-only. Stored encrypted.'});
+    case 'environment': return pwField('Environment name','environment.name',{ph:'qe'})
+      + pwField('Base URL','environment.base_url',{ph:'https://qe.claims.acme.internal',help:'QIVVRA calls <span class="mono">/version</span> and verifies only when it reports the pull request\'s commit.'})
+      + pwField('Wait for deploy (seconds)','environment.wait_for_commit_seconds',{num:1,help:'If QE never reports the commit, the result is INDETERMINATE, never READY.'})
+      + pwField('Application log file','environment.log_path',{ph:'/var/log/claims/app.log',help:'Optional. Lets the verifiers check that logs never hold sensitive data.'});
+    case 'identities': {
+      const rows = d.identities.map((r,i)=>`<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end">${pwField(i?'':'Variable',`identities.${i}.name`,{ph:'CLM_ADJUSTER'})}${pwField(i?'':'Value',`identities.${i}.value`,{type:/PASS|TOKEN|SECRET/.test(r.name)?'password':'text',secret:r.name,ph:'login or password'})}<button class="btn" data-action="pw-id-del" data-id="${i}" aria-label="Remove ${esc(r.name||'row')}">Remove</button></div>`).join('');
+      const found = PW_ENV[d.key] || [];
+      const missing = found.filter(n=>!d.identities.some(r=>r.name===n));
+      return `<p class="small" style="margin:0">QIVVRA signs in to the application as itself, one login per role, never with the team's test accounts.</p>${rows || '<p class="small muted" style="margin:0">No identities yet.</p>'}
+        <div class="btnrow"><button class="btn" data-action="pw-id-add">Add variable</button>${missing.length?`<button class="btn" data-action="pw-id-detect">Add the ${missing.length} the verifiers read</button>`:''}</div>
+        ${found.length?`<p class="small muted" style="margin:0">The verifiers read: <span class="mono">${found.map(esc).join(', ')}</span></p>`:''}`;
+    }
+    case 'review': return pwReview();
+  }
+  return '';
+}
+const PW_ICON = {pass:['✓','var(--green-text)'], warn:['!','var(--amber-text)'], fail:['✕','var(--red-text)']};
+function pwResultBox(res){
+  if(!res) return '';
+  const head = {pass:'All checks passed', warn:'Passed with warnings', fail:'Fix the failed checks'}[res.status], t = res.status==='pass'?'green':res.status==='warn'?'amber':'red';
+  return `<div role="status" style="border:1px solid var(--${t}-line);background:var(--${t}-tint);border-radius:10px;padding:12px 14px"><b style="color:${PW_ICON[res.status][1]}">${head}</b>
+    <ul style="list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px">${res.checks.map(c=>`<li class="small" style="display:grid;grid-template-columns:18px minmax(0,1fr);gap:6px"><b aria-hidden="true" style="color:${PW_ICON[c[0]][1]}">${PW_ICON[c[0]][0]}</b><span><b>${esc(c[1])}</b>${c[2]?` · <span style="overflow-wrap:anywhere">${esc(c[2])}</span>`:''}</span></li>`).join('')}</ul></div>`;
+}
+/* Simulated connection tests: the same checks the platform runs, decided from the inputs. */
+function pwTest(step, d, editing){
+  const c = [], P=(l,x)=>c.push(['pass',l,x]), Wn=(l,x)=>c.push(['warn',l,x]), F=(l,x)=>c.push(['fail',l,x]);
+  const other = S.apps.find(a=>a.key!==editing && a.draft.github.repository.toLowerCase()===String(d.github.repository||'').toLowerCase());
+  const has = (name, val) => !!val || S.wiz.secretsSet.includes(name);
+  switch(step){
+    case 'application':
+      if(!/^[a-z][a-z0-9-]{1,39}$/.test(d.key||'')) F('Application key','Lower-case letters, digits and hyphens, starting with a letter (for example claims)');
+      else if(S.apps.some(a=>a.key===d.key && a.key!==editing)) F('Application key', `${d.key} is already onboarded`);
+      else P('Application key', `${d.key}: the policy repository must register this key`);
+      (d.name||'').trim() ? P('Display name', d.name.trim()) : F('Display name','Enter the name people know the application by');
+      break;
+    case 'github':
+      if(!/^[\w.-]+\/[\w.-]+$/.test(d.github.repository||'')){ F('Repository','Use owner/name, for example acme/claims-portal'); break; }
+      if(other){ F('Repository', `${d.github.repository} is already onboarded as ${other.name}`); break; }
+      if(!d.github.base_branch){ F('Base branch','Enter the branch pull requests merge into'); break; }
+      if(d.github.adapter==='api'){ P('Repository reachable', `${d.github.repository} · private`); P('Can post statuses and comments','QIVVRA GitHub App installed on the organisation'); P('Base branch', d.github.base_branch); }
+      else { P('Local clone', d.github.base_branch); Wn('Demo mode','Changed files come from a local clone'); }
+      P('Webhook secret','Set on the engine');
+      break;
+    case 'jira':
+      if(!/^[A-Z][A-Z0-9]{1,9}$/.test(d.jira.project||'')){ F('Project key','Upper-case letters and digits, for example CLM'); break; }
+      P('Project key', `Pull request titles or branches must name an issue like ${d.jira.project}-123`);
+      if(d.jira.adapter==='cloud'){
+        if(!/^https:\/\/[\w.-]+/.test(d.jira.base_url||'')){ F('Site URL','For example https://yourcompany.atlassian.net'); break; }
+        if(!/@/.test(d.jira.email||'')){ F('Service account email'); break; }
+        if(!has('JIRA_TOKEN', d.jira.token)){ F('API token','Enter an API token for the service account'); break; }
+        if(/invalid|example/.test(d.jira.base_url)) { F('Jira', `${d.jira.base_url} did not answer`); break; }
+        P('Project found', `${d.jira.project} · ${d.name || d.jira.project}`);
+      } else { P('Issue files','Found'); Wn('Demo mode','Stories come from files. Connect Jira Cloud for real projects.'); }
+      break;
+    case 'xray': {
+      if(!d.xray.path){ F('Results folder',"Where the team's CI writes <commit>/junit.xml"); break; }
+      P('Results folder', d.xray.path);
+      editing ? P('Team results','Results found for recent commits') : Wn('Team results','None yet; they appear when the team CI runs on a pull request');
+      const w = Number(d.xray.wait_seconds); Number.isInteger(w)&&w>=0&&w<=3600 ? P('Wait for results', `${w} s`) : F('Wait for results','0 to 3600 seconds');
+      P('Role',"Shown as context only; the team's results never decide the disposition");
+      break; }
+    case 'policies': {
+      if(!d.policies.source){ F('Repository','Enter a Git URL or a path to a checkout on the engine host'); break; }
+      P(/^(https?:|git@|file:)/.test(d.policies.source)?'Repository cloned':'Checkout found', d.policies.source); P('Policies validate');
+      const e = PW_CATALOG[d.key];
+      if(!e){ F('Application registered', `catalog/components.yaml has no "${d.key}". Registered: ${Object.keys(PW_CATALOG).join(', ')}. Ask the policy owners to add it by pull request.`); break; }
+      P('Application registered', `${e.components} components mapped to code paths`); P('Assurance profile', e.profile); P('Rules', `${e.policies} policies, ${e.obligations} obligations`);
+      break; }
+    case 'verifiers': {
+      if(!d.verifiers.source){ F('Repository','Enter a Git URL or a path to a checkout on the engine host'); break; }
+      P(/^(https?:|git@|file:)/.test(d.verifiers.source)?'Repository cloned':'Checkout found', d.verifiers.source); P('Evidence reporter','Results are sealed as QIVVRA evidence');
+      const e = PW_CATALOG[d.key];
+      if(!e){ P('Checks found'); Wn('Coverage','Test the policy repository first to check coverage'); break; }
+      P('Checks found', `${e.checks} checks in ${e.verifiers} verifiers, including V1 (environment)`);
+      e.missing.length ? Wn('Coverage', `${e.obligations-e.missing.length}/${e.obligations} obligations have a check. Missing: ${e.missing.join(', ')}. Those will be NOT ASSESSED.`) : P('Coverage', `All ${e.obligations} obligations have a check`);
+      break; }
+    case 'environment': {
+      let u; try{ u = new URL('/version', d.environment.base_url); }catch(e){ F('Base URL','For example https://qe.claims.acme.internal'); break; }
+      if(/down|:3999|invalid/.test(d.environment.base_url)) F('Reachable', `${u} did not answer`);
+      else P('Reports its commit', `${d.key || 'app'} 2.3.1 running 9d41a7c`);
+      const w = Number(d.environment.wait_for_commit_seconds); Number.isInteger(w)&&w>=0&&w<=7200 ? P('Wait for deploy', `${w} s`) : F('Wait for deploy','0 to 7200 seconds');
+      d.environment.log_path ? P('Application log', d.environment.log_path) : Wn('Application log','None given; log-masking checks will be NOT ASSESSED');
+      break; }
+    case 'identities': {
+      const names = d.identities.map(i=>i.name);
+      d.identities.forEach(i=>{ if(!/^[A-Z][A-Z0-9_]*$/.test(i.name||'')) F('Variable name', `"${i.name||''}": upper-case, digits and underscores`); else has(i.name, i.value) ? P(i.name, i.value?'Will be stored encrypted':'Stored value kept') : F(i.name,'Enter a value'); });
+      if(new Set(names).size!==names.length) F('Duplicates','Each variable once');
+      const notGiven = (PW_ENV[d.key]||[]).filter(n=>!names.includes(n));
+      if(notGiven.length) Wn('Not provided', `${notGiven.join(', ')}: the verifiers fall back to their built-in defaults`);
+      if(!d.identities.length && !notGiven.length) Wn('Test identities','None given; the verifiers use their built-in defaults');
+      break; }
+  }
+  const status = c.some(x=>x[0]==='fail')?'fail':c.some(x=>x[0]==='warn')?'warn':'pass';
+  return {status, checks:c};
+}
+function pwReview(){
+  const W = S.wiz, d = W.draft;
+  if(W.saved) return pwSaved();
+  const row = (k,label,v) => { const r = W.results[k]; return `<div>${esc(label)}</div><div>${v}${r?` <b style="color:${PW_ICON[r.status][1]}" title="${r.status}">${PW_ICON[r.status][0]}</b>`:' <span class="small muted">not tested</span>'}</div>`; };
+  const sec = (val,name) => val ? 'new value entered' : (W.secretsSet.includes(name) ? 'stored' : 'none');
+  return `<div class="kv small" style="grid-template-columns:170px minmax(0,1fr)">
+    ${row('application','Application',`<b>${esc(d.name)}</b> <span class="mono">(${esc(d.key)})</span>`)}
+    ${row('github','GitHub',`<span class="mono">${esc(d.github.repository)}</span> → ${esc(d.github.base_branch)} · ${d.github.adapter==='api'?'GitHub API':'local clone'}`)}
+    ${row('jira','Jira',`${esc(d.jira.project)} · ${d.jira.adapter==='cloud'?`${esc(d.jira.base_url)} as ${esc(d.jira.email)} · token ${sec(d.jira.token,'JIRA_TOKEN')}`:'issue files'}`)}
+    ${row('xray','Team results',`<span class="mono">${esc(d.xray.path)}</span> · wait ${esc(d.xray.wait_seconds)} s`)}
+    ${row('policies','Policy repository',`<span class="mono">${esc(d.policies.source)}</span>`)}
+    ${row('verifiers','Verifiers',`<span class="mono">${esc(d.verifiers.source)}</span>`)}
+    ${row('environment','QE environment',`<span class="mono">${esc(d.environment.base_url)}</span> · wait ${esc(d.environment.wait_for_commit_seconds)} s`)}
+    ${row('identities','Test identities', d.identities.length ? d.identities.map(i=>`<span class="mono">${esc(i.name)}</span>`).join(', ') : 'built-in defaults')}
+  </div>
+  ${W.saveErr?`<div class="notice red" style="margin:0"><span>${esc(W.saveErr)}</span></div>`:''}
+  <p class="small muted" style="margin:0">Creating it records who did it in the platform audit log. Credentials are stored encrypted and never shown again.</p>`;
+}
+function pwSaved(){
+  const W = S.wiz, d = W.draft, hook = 'https://qivvra.acme.com/webhooks/github';
+  const copy = t => `<button class="copy" data-action="copy" data-text="${esc(t)}">Copy</button>`;
+  return `<div class="notice" style="margin:0;background:var(--green-tint);border-color:var(--green-line)"><span><b style="color:var(--green-text)">${esc(d.name)} is ${W.editing?'updated':'onboarded'}.</b> The next pull request on <span class="mono">${esc(d.github.repository)}</span> starts an assessment.</span></div>
+    <h3 style="margin:4px 0 0;font-size:14px">On GitHub (once, unless the QIVVRA GitHub App does it for you)</h3>
+    <div class="kv small" style="grid-template-columns:150px minmax(0,1fr)">
+      <div>Webhook payload URL</div><div><span class="mono">${hook}</span> ${copy(hook)}</div>
+      <div>Content type</div><div class="mono">application/json</div>
+      <div>Secret</div><div>The engine's <span class="mono">WEBHOOK_SECRET</span></div>
+      <div>Events</div><div>Pull requests</div>
+      <div>Branch protection</div><div>On <span class="mono">${esc(d.github.base_branch)}</span>, require the status check <span class="mono">qivvra/assurance</span> ${copy('qivvra/assurance')}</div>
+    </div>`;
+}
+function pwViewOnboard(){
+  if(!S.wiz){ S.wiz = { step:0, draft:PW_BLANK(), editing:null, secretsSet:[], results:{}, busy:false, saved:false }; }
+  const W = S.wiz, [key,title,sub] = PW_STEPS[W.step], res = W.results[key];
+  const steps = PW_STEPS.map(([k,t],i)=>{ const r = W.results[k]; return `<li><button class="wiz-step${i===W.step?' on':''}" data-action="pw-go" data-id="${i}"${i===W.step?' aria-current="step"':''}><span class="n" style="${r?`background:${PW_ICON[r.status][1]};border-color:${PW_ICON[r.status][1]};color:#fff`:''}">${r?PW_ICON[r.status][0]:i+1}</span>${esc(t)}</button></li>`; }).join('');
+  const review = key==='review', canNext = res && res.status!=='fail';
+  const actions = W.saved ? `<button class="btn primary" data-action="pw-done">Open Integrations</button>`
+    : review ? `<button class="btn" data-action="pw-back">Back</button><button class="btn primary" data-action="pw-save"${W.busy?' disabled':''}>${W.busy?'<span class="st run sm" aria-hidden="true"></span>Testing everything…':W.editing?'Save changes':'Create application'}</button>`
+    : `${W.step?'<button class="btn" data-action="pw-back">Back</button>':''}<button class="btn" data-action="pw-test"${W.busy?' disabled':''}>${W.busy?'<span class="st run sm" aria-hidden="true"></span>Testing…':'Test connection'}</button><button class="btn primary" data-action="pw-next"${canNext?'':' disabled title="Test this step first"'}>Next</button>`;
+  return `<div class="ph"><div><h1>${W.editing?`Edit ${esc(W.draft.name)}`:'Add application'}</h1><p class="sub">Connect one application to QIVVRA. Each connection is tested before it is saved.</p></div><div class="acts"><button class="btn" data-action="pw-cancel">${W.saved?'Close':'Cancel'}</button></div></div>
+    <div class="wiz"><nav aria-label="Steps"><ol class="wiz-steps">${steps}</ol></nav>
+      <section class="card" aria-labelledby="wiz-h" style="display:flex;flex-direction:column;gap:14px;min-width:0">
+        <div><p class="small muted" style="margin:0">Step ${W.step+1} of ${PW_STEPS.length}</p><h2 id="wiz-h" style="margin:2px 0 4px">${esc(title)}</h2><p class="small muted" style="margin:0">${esc(sub)}</p></div>
+        <form id="pw-form" style="display:flex;flex-direction:column;gap:12px" onsubmit="return false">${pwForm(key)}</form>
+        <div id="pw-res">${review?'':pwResultBox(res)}</div>
+        <div class="btnrow" style="justify-content:flex-end">${actions}</div>
+      </section></div>`;
+}
+function pwRun(fn){ S.wiz.busy = true; render(); setTimeout(()=>{ if(!S.wiz) return; S.wiz.busy = false; fn(); render(); const b = $('#pw-res'); if(b) b.scrollIntoView({block:'nearest'}); }, 700); }
+function pwSave(){
+  const W = S.wiz, d = W.draft;
+  pwRun(()=>{
+    PW_STEPS.slice(0,-1).forEach(([k])=>{ W.results[k] = pwTest(k, d, W.editing); });
+    const bad = PW_STEPS.filter(([k])=>W.results[k] && W.results[k].status==='fail').map(s=>s[1]);
+    if(bad.length){ W.saveErr = `Not saved. These steps fail now: ${bad.join(', ')}. Open them to see why.`; return; }
+    W.saveErr = null;
+    const secrets = new Set(W.secretsSet);
+    if(d.jira.token) secrets.add('JIRA_TOKEN'); if(d.policies.token) secrets.add('POLICIES_GIT_TOKEN'); if(d.verifiers.token) secrets.add('VERIFIERS_GIT_TOKEN');
+    d.identities.forEach(i=>{ if(i.value) secrets.add(i.name); });
+    const clean = JSON.parse(JSON.stringify(d)); ['jira','policies','verifiers'].forEach(k=>{ clean[k].token=''; }); clean.identities = clean.identities.map(i=>({name:i.name,value:''}));
+    const at = fmt(new Date());
+    if(W.editing){ const a = S.apps.find(x=>x.key===W.editing); Object.assign(a, {name:d.name, draft:clean, secretsSet:[...secrets]}); }
+    else S.apps.push({ key:d.key, name:d.name, status:'active', by:ME.short, at, draft:clean, secretsSet:[...secrets] });
+    S.platformAudit.unshift({at, who:ME.short, text:`${W.editing?'Updated':'Onboarded'} ${d.name} (${d.github.repository})`});
+    W.saved = true; toast(`${d.name} ${W.editing?'updated':'onboarded'}.`);
+  });
+}
+document.addEventListener('input', e => {
+  const el = e.target; if(!el.dataset || !el.dataset.pw || !S.wiz) return;
+  pwSet(S.wiz.draft, el.dataset.pw, el.getAttribute('inputmode')==='numeric' ? (el.value===''?'':Number(el.value)) : el.value);
+  const key = PW_STEPS[S.wiz.step][0];
+  if(S.wiz.results[key]){ delete S.wiz.results[key]; const b = $('#pw-res'); if(b) b.innerHTML=''; const nx = $('[data-action="pw-next"]'); if(nx){ nx.disabled = true; nx.title = 'Test this step first'; }
+    const n = document.querySelectorAll('.wiz-step .n')[S.wiz.step]; if(n){ n.removeAttribute('style'); n.textContent = S.wiz.step+1; } }
+});
+document.addEventListener('change', e => {
+  const el = e.target; if(!el.dataset || !el.dataset.pwRedraw || !S.wiz) return;
+  pwSet(S.wiz.draft, el.dataset.pw, el.value); delete S.wiz.results[PW_STEPS[S.wiz.step][0]]; render();
+});
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-action]'); if(!t) return;
+  const a = t.dataset.action, id = t.dataset.id, W = S.wiz;
+  switch(a){
+    case 'pw-add': if(can('admin')) pwStart(); break;
+    case 'pw-edit': pwStart(S.apps.find(x=>x.key===id)); break;
+    case 'pw-status': { const app = S.apps.find(x=>x.key===id); app.status = app.status==='paused'?'active':'paused';
+      S.platformAudit.unshift({at:fmt(new Date()), who:ME.short, text:`${app.status==='paused'?'Paused':'Resumed'} ${app.name}`});
+      toast(app.status==='paused' ? `${app.name} paused: its pull requests are ignored until resumed.` : `${app.name} resumed.`); render(); } break;
+    case 'pw-example': W.draft = PW_EXAMPLE(); W.results = {}; render(); break;
+    case 'pw-test': if(W && !W.busy){ const k = PW_STEPS[W.step][0]; pwRun(()=>{ W.results[k] = pwTest(k, W.draft, W.editing); if(k==='verifiers' && !W.draft.identities.length) W.draft.identities = (PW_ENV[W.draft.key]||[]).map(n=>({name:n,value:''})); }); } break;
+    case 'pw-next': if(W){ const r = W.results[PW_STEPS[W.step][0]]; if(r && r.status!=='fail'){ W.step++; render(); } } break;
+    case 'pw-back': if(W && W.step){ W.step--; render(); } break;
+    case 'pw-go': if(W && !W.saved){ W.step = Number(id); render(); } break;
+    case 'pw-save': if(W && !W.busy) pwSave(); break;
+    case 'pw-cancel': case 'pw-done': S.wiz = null; go('integrations'); break;
+    case 'pw-id-add': W.draft.identities.push({name:'',value:''}); delete W.results.identities; render(); break;
+    case 'pw-id-del': W.draft.identities.splice(Number(id),1); delete W.results.identities; render(); break;
+    case 'pw-id-detect': (PW_ENV[W.draft.key]||[]).filter(n=>!W.draft.identities.some(r=>r.name===n)).forEach(n=>W.draft.identities.push({name:n,value:''})); delete W.results.identities; render(); break;
+  }
+});
 
 /* ---------- Profiles ---------- */
 const PROFILES = {
@@ -1779,7 +2073,7 @@ document.addEventListener('click', e => {
     case 'graph-node': { const [ti,body] = graphNodeDetail(id); openDrawer(ti,'Evidence graph node',body); } break;
     case 'profile': S.profileSel = id; render(); break;
     case 'profile-version': if(!can('admin')) { toast('Creating profile versions needs the Admin role.'); break; } toast(`Draft ${PROFILES[S.profileSel].name.replace(/v\d+$/,m=>'v'+(+m.slice(1)+1))} created. ${PROFILES[S.profileSel].version} stays locked because assurance cases use it.`); break;
-    case 'copy': { const txt = t.dataset.text; const done = ()=>{ t.textContent='Copied'; setTimeout(()=>t.textContent='Copy trace',1500); };
+    case 'copy': { const txt = t.dataset.text, orig = t.textContent; const done = ()=>{ t.textContent='Copied'; setTimeout(()=>t.textContent=orig,1500); };
       try{ navigator.clipboard.writeText(txt).then(done, ()=>selectTrace(t)); }catch(err){ selectTrace(t); } } break;
     case 'invite': toast('Invitations are sent from your identity provider once single sign-on is connected (Phase 2).'); break;
     case 'reset-arm': S.resetArm = true; render(); break;
@@ -1972,6 +2266,7 @@ function flowShow(){ const t = document.querySelector('.flow-target'); if(t) t.s
 
 /* ================= For you: what each persona sees first ================= */
 const FY_GO = {
+  'pw-add':()=>pwStart(),
   'vp-run':()=>{ setChange('VP-184'); S.vp.viewRev=latestVpRev(); go('obligations'); },
   'vp-gaps':()=>{ setChange('VP-184'); S.vp.viewRev=latestVpRev(); go('gaps'); },
   'vp-revs':()=>{ setChange('VP-184'); go('revisions'); },
@@ -2031,6 +2326,8 @@ function forYou(){
   } else if(ME.sysRole==='Admin'){
     head = 'Platform administration'; sub = 'You configure QIVVRA. You cannot run assurance or make decisions.';
     items.push(fyItem(S.faults.policyEngine?'bad':'ok', S.faults.policyEngine?'!':'✓', S.faults.policyEngine?'Policy engine: connection error':'3 integrations connected', S.faults.policyEngine?'New runs cannot resolve obligations until it is restored.':'GitHub, test frameworks and the policy engine. 13 more available.', 'Integrations', 'integrations', true));
+    const pwPaused = S.apps.filter(a=>a.status==='paused').length;
+    items.push(fyItem('info','+', S.apps.length+' applications onboarded'+(pwPaused?' · '+pwPaused+' paused':''), 'Each has its GitHub repository, Jira project, policy and verifier repositories, and QE environment. Every connection is tested before it is saved.', 'Add application', 'pw-add'));
     items.push(fyItem('info','U', ACCOUNTS.length+' users across 4 roles', '1 Assurance Lead, 2 Contributors, 2 Viewers, 1 Admin; 2 hold an Authority tag.', 'Users and roles', 'settings'));
     items.push(fyItem('info','P','4 assurance profiles', 'VendorPay Financial Change v1 is locked because assurance cases use it.', 'Profiles', 'profiles'));
   }

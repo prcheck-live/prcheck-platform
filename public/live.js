@@ -846,16 +846,7 @@ document.addEventListener('click', e => {
 if (!VALID.includes('onboard')) VALID.push('onboard');
 PAGE_NAMES.onboard = 'Add application';
 NAV_FOR.onboard = 'integrations';
-(() => { const st = document.createElement('style'); st.textContent = `
-.wiz{display:grid;grid-template-columns:230px minmax(0,1fr);gap:20px;align-items:start;max-width:1040px}
-.wiz-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;position:sticky;top:80px}
-.wiz-step{display:flex;gap:10px;align-items:center;width:100%;text-align:left;background:none;border:0;border-radius:8px;padding:8px 10px;font:inherit;font-size:13.5px;color:var(--slate-text);cursor:pointer}
-.wiz-step:hover{background:var(--neutral-tint)}
-.wiz-step.on{background:var(--teal-tint);color:var(--ink);font-weight:600}
-.wiz-step .n{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--line);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex:none;background:var(--surface)}
-.wiz-step.on .n{border-color:var(--teal);color:var(--teal)}
-@media (max-width:900px){.wiz{grid-template-columns:minmax(0,1fr)}.wiz-steps{position:static;flex-direction:row;overflow-x:auto;gap:4px;padding-bottom:4px}.wiz-step{white-space:nowrap;padding:6px 8px}}
-`; document.head.appendChild(st); })();
+/* Wizard styles (.wiz, .wiz-step) live in ui/prototype.html. */
 
 /* ---------- Identities beyond the prototype's six: one per rule-owning authority ---------- */
 if (!ACCOUNTS.some(a => a.email === 'v.bose@qivvra.demo')) ACCOUNTS.splice(ACCOUNTS.length - 1, 0,
