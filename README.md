@@ -66,7 +66,7 @@ Every source has a local adapter, used by the demo, and a cloud adapter. Switch 
 | GitHub: status + comment | outbox files | statuses and issue-comments APIs | same |
 | GitHub: webhook | `scripts/send-webhook.mjs` | GitHub App webhook to `/webhooks/github` | `WEBHOOK_SECRET` |
 | Jira | `fixtures/jira/*.json` | `cloud` (REST v3, ADF parsed for numbered ACs) | `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_TOKEN` |
-| Xray | JUnit per commit in `data/team-results/<sha>/` | Xray GraphQL test executions (not wired yet) | — |
+| Xray | JUnit per commit in `data/team-results/<sha>/` | `cloud`: Xray Cloud GraphQL, the Test Execution labelled `commit-<sha>` | Client ID + secret (entered at onboarding) |
 | Policies | sibling checkout | checkout of the policy repo at its `main` | read-only deploy key |
 | Verifiers | `local-playwright` (spawned) | `github-dispatch` to the verifiers repo's `verify.yml` (not wired yet) | — |
 | Evidence store | `data/evidence`, files mode 0444 | S3 with Object Lock (compliance mode) | — |
@@ -114,20 +114,20 @@ An Admin adds an application in the UI: **Integrations → Add application**. Ni
 | Step | The Admin gives | Tested for real |
 |---|---|---|
 | Application | Display name, application key | Key format; not already onboarded |
-| GitHub | `owner/repo`, base branch, GitHub API or local clone | Repository and branch reachable with the engine's token; webhook secret set |
+| GitHub | `owner/repo`, base branch, and how to connect: the organisation connection (GitHub App / `QIVVRA_GITHUB_TOKEN`), an **access token for this repository**, or a local clone (demo) | Repository and branch reachable with those credentials; webhook secret set |
 | Jira | Project key; Jira Cloud site, service-account email, API token (or issue files) | Project found with those credentials |
-| Team results | Folder for `<commit>/junit.xml`, wait time | Folder writable; results found |
+| Xray | **Xray Cloud**: client ID and client secret (API key), or JUnit files (demo); wait time | Authenticates with Xray; counts the project's test cases and executions. The team CI labels each commit's Test Execution `commit-<sha>` |
 | Policy repository | Git URL (cloned) or checkout path; optional read-only token | Clones, installs, runs `validate.ts`; the key is registered in `catalog/components.yaml`; profile exists; counts policies and obligations |
 | Verifiers repository | Git URL or path; optional token | Playwright lists the checks; V1 exists; **every obligation has a check** (missing ones are listed); finds the login variables the verifiers read |
 | QE environment | Base URL, deploy wait, log file | `/version` answers with a `gitSha` |
-| Test identities | QIVVRA's own logins, one per role (prefilled from what the verifiers read) | Every variable has a value |
+| Test identities | **Values only.** The names, roles and purposes come from the verifiers repository's `identities.yaml` | Every declared login has a value |
 | Review and create | | **Every step is tested again on the server** before saving |
 
 The approved prototype (`ui/prototype.html`) has the same wizard with simulated tests, including a ready-made example (Claims Portal) and the failure cases; the live layer replaces it with these real tests.
 
 After saving, the application is live at once (no restart) and the screen shows the webhook URL and required check to set on GitHub. Admins can **Edit** (stored secrets are kept unless replaced) and **Pause** (webhooks are acknowledged and ignored). Every create, update, pause and resume is written to `platform_audit`.
 
-- Credentials are encrypted with AES-256-GCM using `QIVVRA_SECRET_KEY` (falls back to `WEBHOOK_SECRET`), and never returned by the API. Use a KMS or vault in production.
+- Secrets (GitHub token, Jira token, Xray client secret, repository tokens, test logins) are encrypted with AES-256-GCM using `QIVVRA_SECRET_KEY` (falls back to `WEBHOOK_SECRET`), and never returned by the API. Use a KMS or vault in production.
 - Applications in `qivvra.config.yaml` still work and are shown as "Configuration file"; they are edited in the file.
 - The key must match the policy repository's catalog: the policy owners register an application there first, by pull request. QIVVRA does not let an Admin invent rules.
 - Assurance Leads can see the application list; only Admins can test, create, edit or pause. Contributors and Viewers get 403.
@@ -165,7 +165,7 @@ After saving, the application is live at once (no restart) and the screen shows 
 ## Known limits of this MVP build
 
 - One assessment runs at a time (a shared QE environment). A newer push queues behind the running one.
-- The Xray cloud adapter and the GitHub-dispatched verifier run are documented interfaces only. The demo uses JUnit files and a local Playwright run.
+- The Xray Cloud adapter is implemented but has not yet been run against a live Xray instance; the demo uses JUnit files. The GitHub-dispatched verifier run is a documented interface only.
 - `/version` reports a 7-character commit, so the engine compares the short SHA.
 - The Jira fixtures hold VP-184 as it is today (5 acceptance criteria), so the assessments of commits 1 and 2 also show 5. In real Jira, the frozen context captures the story as it was at assessment time.
 - Sign-in uses demo identities; connect an identity provider for production.

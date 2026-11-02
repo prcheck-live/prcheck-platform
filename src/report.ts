@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { config, RepoConfig } from './config';
 import { Disposition, label, ObligationResult } from './decide';
-import { githubApi } from './sources/github';
+import { githubApi, githubToken } from './sources/github';
 import type { JiraIssue } from './sources/jira';
 import type { TeamResults } from './sources/xray';
 
@@ -59,19 +59,19 @@ export async function publish(r: ReportInput | { assessmentId: string; repo: Rep
   const status = { ...statusFor(r.disposition, r.because), context: CONTEXT, target_url: `${config.server.public_url}/assessments/${r.assessmentId}` };
   const comment = 'results' in r ? commentMarkdown(r) : null;
 
-  if (!process.env.QIVVRA_GITHUB_TOKEN) {
+  if (!githubToken(r.repo)) {
     const dir = join(config.outbox, r.assessmentId);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, `status-${r.disposition.toLowerCase()}.json`), JSON.stringify({ repo: r.repo.github, sha: r.sha, ...status }, null, 2));
     if (comment) writeFileSync(join(dir, 'pr-comment.md'), comment);
     return { channel: 'outbox', dir, status };
   }
-  await githubApi(`/repos/${r.repo.github}/statuses/${r.sha}`, { method: 'POST', body: status });
+  await githubApi(`/repos/${r.repo.github}/statuses/${r.sha}`, { method: 'POST', body: status }, r.repo);
   if (comment) {
-    const existing = (await githubApi(`/repos/${r.repo.github}/issues/${r.prNumber}/comments?per_page=100`)) as Array<{ id: number; body: string }>;
+    const existing = (await githubApi(`/repos/${r.repo.github}/issues/${r.prNumber}/comments?per_page=100`, {}, r.repo)) as Array<{ id: number; body: string }>;
     const mine = existing.find((c) => c.body.startsWith(MARKER));
-    if (mine) await githubApi(`/repos/${r.repo.github}/issues/comments/${mine.id}`, { method: 'PATCH', body: { body: comment } });
-    else await githubApi(`/repos/${r.repo.github}/issues/${r.prNumber}/comments`, { method: 'POST', body: { body: comment } });
+    if (mine) await githubApi(`/repos/${r.repo.github}/issues/comments/${mine.id}`, { method: 'PATCH', body: { body: comment } }, r.repo);
+    else await githubApi(`/repos/${r.repo.github}/issues/${r.prNumber}/comments`, { method: 'POST', body: { body: comment } }, r.repo);
   }
   return { channel: 'github', status };
 }

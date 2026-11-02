@@ -644,25 +644,28 @@ const WIZ_STEPS = [
   ['application', 'Application', 'Name it and give the key the policy repository uses for it.'],
   ['github', 'GitHub', 'The repository whose pull requests QIVVRA assures, and the branch they merge into.'],
   ['jira', 'Jira', 'Where stories and acceptance criteria live. The PR title or branch names the issue.'],
-  ['xray', 'Team results', "Where the team's CI leaves its JUnit results per commit (as imported to Xray). Context only."],
+  ['xray', 'Xray', "The team's test cases and their results for each commit. Shown as context; they never decide."],
   ['policies', 'Policy repository', 'The rules this application is assured against, owned by their authorities.'],
   ['verifiers', 'Verifiers repository', "QIVVRA's own checks for this application, one per obligation."],
   ['environment', 'QE environment', 'Where each pull request commit is deployed. It must report its commit at /version.'],
-  ['identities', 'Test identities', "QIVVRA's own logins in the application, one per role. Stored encrypted."],
+  ['identities', 'Test identities', "The verifiers repository declares which logins it needs. You give only their values, stored encrypted."],
   ['review', 'Review and create', 'Everything is tested again on the server before it is saved.'],
 ];
 const blankDraft = () => ({
   key: '', name: '',
-  github: { repository: '', base_branch: 'main', adapter: 'api', path: '' },
+  github: { repository: '', base_branch: 'main', adapter: 'org', token: '', path: '' },
   jira: { project: '', adapter: 'cloud', base_url: '', email: '', token: '', path: '' },
-  xray: { path: 'team-results', wait_seconds: 600 },
+  xray: { adapter: 'cloud', base_url: 'https://xray.cloud.getxray.app', client_id: '', client_secret: '', path: 'team-results', wait_seconds: 600 },
   policies: { source: '', token: '' }, verifiers: { source: '', token: '' },
   environment: { name: 'qe', base_url: '', wait_for_commit_seconds: 900, log_path: '' },
   identities: [],
 });
 function startWizard(draft, editing, secretsSet) {
   LIVE.wiz = { step: 0, draft: draft || blankDraft(), editing: editing || null, secretsSet: secretsSet || [], results: {}, busy: false, saved: null, saveErr: null };
-  ['jira', 'policies', 'verifiers'].forEach(k => { LIVE.wiz.draft[k] = LIVE.wiz.draft[k] || {}; LIVE.wiz.draft[k].token = ''; });
+  const D = LIVE.wiz.draft;
+  ['github', 'jira', 'policies', 'verifiers'].forEach(k => { D[k] = D[k] || {}; D[k].token = ''; });
+  D.xray = { adapter: 'junit', base_url: 'https://xray.cloud.getxray.app', client_id: '', path: '', ...D.xray, client_secret: '' };
+  if (D.github.adapter === 'api') D.github.adapter = 'org';
   (LIVE.wiz.draft.identities || []).forEach(i => { i.value = ''; });
   go('onboard');
 }
@@ -684,17 +687,25 @@ function stepForm(key) {
       + wfield('Application key', 'key', { ph: 'vendorpay', disabled: !!W.editing, help: 'Must match the key in the policy repository\'s <span class="mono">catalog/components.yaml</span>. It cannot change later.' });
     case 'github': return wfield('Repository', 'github.repository', { ph: 'your-org/vendorpay-app', help: 'owner/name on GitHub.' })
       + wfield('Base branch', 'github.base_branch', { ph: 'main', help: 'Pull requests into this branch are assured. Make <span class="mono">qivvra/assurance</span> a required check on it.' })
-      + wfield('Read changes through', 'github.adapter', { options: [['api', 'GitHub API (organisation GitHub App or token)'], ['local-git', 'Local clone on the engine host (demo)']] })
-      + (d.github.adapter === 'local-git' ? wfield('Local clone path', 'github.path', { ph: '/home/qivvra/repos/vendorpay-app' }) : '');
+      + wfield('Connect with', 'github.adapter', { options: [['org', 'Organisation connection (QIVVRA GitHub App)'], ['token', 'Access token for this repository'], ['local-git', 'Local clone on the engine host (demo)']] })
+      + (d.github.adapter === 'token' ? wfield('Access token', 'github.token', { type: 'password', secret: 'GITHUB_TOKEN', ph: 'github_pat_…', help: 'Fine-grained token for this repository only. Permissions: <b>Commit statuses</b> and <b>Pull requests</b> read and write, <b>Contents</b> read. Stored encrypted; never shown again.' })
+        : d.github.adapter === 'org' ? `<div class="notice info" style="margin:0"><span>Uses the connection set up once for your GitHub organisation. Choose <b>Access token</b> if this repository is not covered by it.</span></div>`
+        : wfield('Local clone path', 'github.path', { ph: '/home/qivvra/repos/vendorpay-app' }));
     case 'jira': return wfield('Project key', 'jira.project', { ph: 'VP' })
       + wfield('Connection', 'jira.adapter', { options: [['cloud', 'Jira Cloud (REST API)'], ['file', 'Issue files on the engine host (demo)']] })
       + (d.jira.adapter === 'cloud'
         ? wfield('Site URL', 'jira.base_url', { ph: 'https://yourcompany.atlassian.net' }) + wfield('Service account email', 'jira.email', { ph: 'qivvra@yourcompany.com' })
           + wfield('API token', 'jira.token', { type: 'password', secret: 'JIRA_TOKEN', ph: 'Atlassian API token', help: 'Read-only access to the project is enough. Stored encrypted; never shown again.' })
         : wfield('Issue folder', 'jira.path', { ph: 'fixtures/jira', help: 'One <span class="mono">&lt;KEY&gt;.json</span> per issue.' }));
-    case 'xray': return wfield('Results folder', 'xray.path', { ph: 'team-results', help: 'The team CI writes <span class="mono">&lt;commit&gt;/junit.xml</span> here. Relative paths are under the engine\'s folder.' })
+    case 'xray': return wfield('Connect with', 'xray.adapter', { options: [['cloud', 'Xray Cloud (API key)'], ['junit', 'JUnit result files on the engine host (demo)']] })
+      + (d.xray.adapter === 'cloud'
+        ? wfield('Xray URL', 'xray.base_url', { ph: 'https://xray.cloud.getxray.app', help: 'Change only for a regional Xray instance.' })
+          + wfield('Client ID', 'xray.client_id', { ph: 'From Xray: Global settings → API Keys' })
+          + wfield('Client secret', 'xray.client_secret', { type: 'password', secret: 'XRAY_CLIENT_SECRET', ph: 'Client secret of that API key', help: 'Read access to the Jira project is enough. Stored encrypted; never shown again.' })
+          + `<div class="notice info" style="margin:0"><span>The team's CI imports each commit's results as a Test Execution labelled <span class="mono">commit-&lt;sha&gt;</span>, for example <span class="mono">commit-3f6e20d</span>. That is how QIVVRA finds the run for a pull request.</span></div>`
+        : wfield('Results folder', 'xray.path', { ph: 'team-results', help: 'The team CI writes <span class="mono">&lt;commit&gt;/junit.xml</span> here.' }))
       + wfield('Wait for results (seconds)', 'xray.wait_seconds', { num: 1, help: 'How long QIVVRA waits for the team\'s results after QE runs the commit.' })
-      + `<div class="notice info" style="margin:0"><span>The team's results are shown as context. They never decide the disposition.</span></div>`;
+      + `<div class="notice info" style="margin:0"><span>The team's test cases and results are context. They never decide the disposition.</span></div>`;
     case 'policies': return wfield('Git URL or checkout path', 'policies.source', { ph: 'https://github.com/your-org/vendorpay-policies.git', help: 'QIVVRA clones a URL and pulls <b>main</b> before every assessment.' })
       + wfield('Access token (private repositories)', 'policies.token', { type: 'password', secret: 'POLICIES_GIT_TOKEN', ph: 'Optional · read-only', help: 'Read-only. Stored encrypted.' });
     case 'verifiers': return wfield('Git URL or checkout path', 'verifiers.source', { ph: 'https://github.com/your-org/qivvra-verifiers.git', help: 'Each check is named <span class="mono">Vn/check</span>, as the policy obligations reference it.' })
@@ -704,14 +715,15 @@ function stepForm(key) {
       + wfield('Wait for deploy (seconds)', 'environment.wait_for_commit_seconds', { num: 1, help: 'If QE never reports the commit, the result is INDETERMINATE, never READY.' })
       + wfield('Application log file', 'environment.log_path', { ph: '/var/log/vendorpay/app.log', help: 'Optional. Lets the verifiers check that logs never hold sensitive data.' });
     case 'identities': {
-      const rows = d.identities.map((r, i) => `<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end">
-        ${wfield(i ? '' : 'Variable', `identities.${i}.name`, { ph: 'VP_OPS' })}${wfield(i ? '' : 'Value', `identities.${i}.value`, { type: /PASS|TOKEN|SECRET/.test(r.name) ? 'password' : 'text', secret: r.name, ph: 'login or password' })}
-        <button class="btn" data-action="wiz-id-del" data-id="${i}" aria-label="Remove ${esc(r.name || 'row')}">Remove</button></div>`).join('');
-      const found = (W.results.verifiers && W.results.verifiers.found && W.results.verifiers.found.envVars) || [];
-      const missing = found.filter(n => !d.identities.some(r => r.name === n));
-      return `<p class="small" style="margin:0">QIVVRA signs in to the application as itself, one login per role, never with the team's test accounts.</p>${rows || '<p class="small muted" style="margin:0">No identities yet.</p>'}
-        <div class="btnrow"><button class="btn" data-action="wiz-id-add">Add variable</button>${missing.length ? `<button class="btn" data-action="wiz-id-detect">Add the ${missing.length} the verifiers read</button>` : ''}</div>
-        ${found.length ? `<p class="small muted" style="margin:0">The verifiers read: <span class="mono">${found.map(esc).join(', ')}</span></p>` : ''}`;
+      const needed = wizIdentities();
+      if (!needed) return `<div class="notice amber" style="margin:0"><span>Test the <b>Verifiers repository</b> step first. The verifiers declare which logins they need in <span class="mono">identities.yaml</span>.</span><button class="btn" data-action="wiz-go" data-id="5">Go to Verifiers</button></div>`;
+      if (!needed.length) return '<p class="small" style="margin:0">The verifiers need no logins.</p>';
+      return `<p class="small" style="margin:0">These logins are declared by the verifiers repository (<span class="mono">identities.yaml</span>). Give QIVVRA its own account for each role, never the team's test accounts.</p>
+        <div class="tbl-wrap"><table><thead><tr><th>Variable</th><th>Role · used for</th><th style="width:38%">Value</th></tr></thead><tbody>
+        ${needed.map(n => { const i = d.identities.findIndex(x => x.name === n.name); const id = 'wf-identities-' + i + '-value'; const stored = W.secretsSet.includes(n.name);
+          return `<tr><td class="mono small">${esc(n.name)}</td><td class="small"><b>${esc(n.role || '—')}</b>${n.purpose ? `<div class="muted">${esc(n.purpose)}</div>` : ''}</td>
+            <td><label class="sr-only" for="${id}">${esc(n.name)}</label><input id="${id}" data-wf="identities.${i}.value" type="${n.secret ? 'password' : 'text'}" value="${esc(d.identities[i].value || '')}" placeholder="${esc(stored ? 'Stored · leave blank to keep' : n.secret ? 'secret' : 'login')}" autocomplete="${n.secret ? 'new-password' : 'off'}" spellcheck="false" style="border:1px solid var(--line);border-radius:8px;padding:7px 9px;width:100%"></td></tr>`; }).join('')}
+        </tbody></table></div>`;
     }
     case 'review': return reviewPanel();
   }
@@ -732,9 +744,9 @@ function reviewPanel() {
   const secretLabel = (val, name) => val ? 'new value entered' : (W.secretsSet.includes(name) ? 'stored' : 'none');
   return `<div class="kv small" style="grid-template-columns:170px minmax(0,1fr)">
     ${row('application', 'Application', `<b>${esc(d.name)}</b> <span class="mono">(${esc(d.key)})</span>`)}
-    ${row('github', 'GitHub', `<span class="mono">${esc(d.github.repository)}</span> → ${esc(d.github.base_branch)} · ${d.github.adapter === 'api' ? 'GitHub API' : 'local clone'}`)}
+    ${row('github', 'GitHub', `<span class="mono">${esc(d.github.repository)}</span> → ${esc(d.github.base_branch)} · ${d.github.adapter === 'token' ? `access token ${secretLabel(d.github.token, 'GITHUB_TOKEN')}` : d.github.adapter === 'local-git' ? 'local clone' : 'organisation connection'}`)}
     ${row('jira', 'Jira', `${esc(d.jira.project)} · ${d.jira.adapter === 'cloud' ? `${esc(d.jira.base_url)} as ${esc(d.jira.email)} · token ${secretLabel(d.jira.token, 'JIRA_TOKEN')}` : 'issue files'}`)}
-    ${row('xray', 'Team results', `<span class="mono">${esc(d.xray.path)}</span> · wait ${esc(d.xray.wait_seconds)} s`)}
+    ${row('xray', 'Xray', `${d.xray.adapter === 'cloud' ? `Xray Cloud · client <span class="mono">${esc(d.xray.client_id)}</span> · secret ${secretLabel(d.xray.client_secret, 'XRAY_CLIENT_SECRET')}` : `<span class="mono">${esc(d.xray.path)}</span>`} · wait ${esc(d.xray.wait_seconds)} s`)}
     ${row('policies', 'Policy repository', `<span class="mono">${esc(d.policies.source)}</span>`)}
     ${row('verifiers', 'Verifiers', `<span class="mono">${esc(d.verifiers.source)}</span>`)}
     ${row('environment', 'QE environment', `<span class="mono">${esc(d.environment.base_url)}</span> · wait ${esc(d.environment.wait_for_commit_seconds)} s`)}
@@ -788,9 +800,21 @@ async function wizTest() {
   W.busy = false;
   W.results[key] = r.ok ? r.data : { step: key, status: 'fail', checks: [{ label: 'Test', status: 'fail', detail: r.data.message || `HTTP ${r.status}` }] };
   // The verifiers tell us which login variables they read: offer them on the identities step.
-  if (key === 'verifiers' && r.ok && r.data.found && r.data.found.envVars && !W.draft.identities.length) W.draft.identities = r.data.found.envVars.map(n => ({ name: n, value: '' }));
+  // The verifiers declare the logins they need: the identities step lists exactly those.
+  if ((key === 'verifiers' || key === 'identities') && r.ok && r.data.found && r.data.found.identities) syncIdentities(r.data.found.identities);
   render();
   const box = $('#wiz-res'); if (box) box.scrollIntoView({ block: 'nearest' });
+}
+function wizIdentities() {
+  const W = LIVE.wiz;
+  const f = (W.results.verifiers && W.results.verifiers.found && W.results.verifiers.found.identities) || (W.results.identities && W.results.identities.found && W.results.identities.found.identities) || W.idMeta;
+  if (f) return f;
+  return W.editing && W.draft.identities.length ? W.draft.identities.map(i => ({ name: i.name, secret: /PASS|TOKEN|SECRET/.test(i.name) })) : null;
+}
+function syncIdentities(list) {
+  const W = LIVE.wiz, old = W.draft.identities;
+  W.idMeta = list;
+  W.draft.identities = list.map(n => ({ name: n.name, value: (old.find(o => o.name === n.name) || {}).value || '' }));
 }
 async function wizSave() {
   const W = LIVE.wiz;
@@ -838,9 +862,6 @@ document.addEventListener('click', e => {
     case 'wiz-go': stop(); if (W && !W.saved) { W.step = Number(id); render(); } break;
     case 'wiz-save': stop(); if (W && !W.busy) wizSave(); break;
     case 'wiz-cancel': case 'wiz-done': stop(); LIVE.wiz = null; LIVE.platform = null; LIVE.apps = null; go('integrations'); break;
-    case 'wiz-id-add': stop(); W.draft.identities.push({ name: '', value: '' }); delete W.results.identities; render(); break;
-    case 'wiz-id-del': stop(); W.draft.identities.splice(Number(id), 1); delete W.results.identities; render(); break;
-    case 'wiz-id-detect': stop(); { const found = (W.results.verifiers && W.results.verifiers.found && W.results.verifiers.found.envVars) || []; found.filter(n => !W.draft.identities.some(r => r.name === n)).forEach(n => W.draft.identities.push({ name: n, value: '' })); delete W.results.identities; render(); } break;
   }
 }, true);
 if (!VALID.includes('onboard')) VALID.push('onboard');
@@ -862,7 +883,7 @@ function access(a) {
 }
 function homeLabel(a) {
   a = a || ME;
-  if (a.sysRole === 'Admin') return 'Platform';
+  if (a.sysRole === 'Admin') return 'Overview';
   if (a.auth.length) return { Finance: 'Decisions', Security: 'Security review', Compliance: 'Compliance review', Platform: 'Platform review' }[a.auth[0]] || 'My rules';
   if (a.sysRole === 'Assurance Lead') return 'My queue';
   if (a.sysRole === 'Contributor') return 'My changes';

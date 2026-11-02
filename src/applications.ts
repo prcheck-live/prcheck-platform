@@ -18,6 +18,7 @@ import { config, path as cfgPath, registerRepo, RepoConfig } from './config';
 import { pool } from './db';
 import { open, seal } from './secrets';
 import { githubApi } from './sources/github';
+import { commitLabel, XRAY_CLOUD, xrayGraphql, xrayToken } from './sources/xray';
 
 const run = promisify(execFile);
 
@@ -25,9 +26,11 @@ const run = promisify(execFile);
 export interface Draft {
   key: string;
   name: string;
-  github: { repository: string; base_branch: string; adapter: 'api' | 'local-git'; path?: string };
+  /** org: the organisation's GitHub App / token on the engine; token: a token for this repository; local-git: demo. ('api' = org, older drafts.) */
+  github: { repository: string; base_branch: string; adapter: 'org' | 'token' | 'api' | 'local-git'; token?: string; path?: string };
   jira: { project: string; adapter: 'cloud' | 'file'; base_url?: string; email?: string; token?: string; path?: string };
-  xray: { path: string; wait_seconds: number };
+  /** cloud: Xray Cloud API; junit: result files on the engine host (demo). */
+  xray: { adapter?: 'cloud' | 'junit'; base_url?: string; client_id?: string; client_secret?: string; path?: string; wait_seconds: number };
   policies: { source: string; token?: string };
   verifiers: { source: string; token?: string };
   environment: { name: string; base_url: string; wait_for_commit_seconds: number; log_path?: string };
@@ -42,7 +45,9 @@ export interface StepResult { step: Step; status: Status; checks: Check[]; found
 /** Values that are secrets: never stored in `config`, never returned to the browser. */
 function secretsOf(d: Draft): Record<string, string> {
   const s: Record<string, string> = {};
+  if (d.github?.token) s.GITHUB_TOKEN = d.github.token;
   if (d.jira?.token) s.JIRA_TOKEN = d.jira.token;
+  if (d.xray?.client_secret) s.XRAY_CLIENT_SECRET = d.xray.client_secret;
   if (d.policies?.token) s.POLICIES_GIT_TOKEN = d.policies.token;
   if (d.verifiers?.token) s.VERIFIERS_GIT_TOKEN = d.verifiers.token;
   for (const i of d.identities ?? []) if (i.name && i.value) s[i.name] = i.value;
@@ -51,6 +56,7 @@ function secretsOf(d: Draft): Record<string, string> {
 function withoutSecrets(d: Draft): Draft {
   return {
     ...d,
+    github: { ...d.github, token: undefined }, xray: { ...d.xray, client_secret: undefined },
     jira: { ...d.jira, token: undefined }, policies: { ...d.policies, token: undefined }, verifiers: { ...d.verifiers, token: undefined },
     identities: (d.identities ?? []).map((i) => ({ name: i.name })),
   };
@@ -66,9 +72,11 @@ export function toRepoConfig(d: Draft, secrets: Record<string, string>, status: 
     key: d.key, app: d.name, origin: 'ui', status, secrets,
     github: d.github.repository, base_branch: d.github.base_branch, jira_project: d.jira.project,
     sources: {
-      github: d.github.adapter === 'api' ? { adapter: 'api' } : { adapter: 'local-git', path: localPath(d.github.path ?? '') },
+      github: d.github.adapter === 'local-git' ? { adapter: 'local-git', path: localPath(d.github.path ?? '') } : { adapter: 'api' },
       jira: d.jira.adapter === 'cloud' ? { adapter: 'cloud', base_url: d.jira.base_url, email: d.jira.email } : { adapter: 'file', path: localPath(d.jira.path ?? '') },
-      xray: { adapter: 'junit', path: localPath(d.xray.path), wait_seconds: d.xray.wait_seconds },
+      xray: d.xray.adapter === 'cloud'
+        ? { adapter: 'cloud', base_url: d.xray.base_url || XRAY_CLOUD, client_id: d.xray.client_id, wait_seconds: d.xray.wait_seconds }
+        : { adapter: 'junit', path: localPath(d.xray.path ?? ''), wait_seconds: d.xray.wait_seconds },
     },
     policies: { path: sourceDir(d, 'policies'), pull: isUrl(d.policies.source), repository: d.policies.source },
     environment: { name: d.environment.name || 'qe', base_url: d.environment.base_url, wait_for_commit_seconds: d.environment.wait_for_commit_seconds, ...(d.environment.log_path ? { log_path: localPath(d.environment.log_path) } : {}) },
@@ -153,6 +161,23 @@ function envVarsIn(dir: string): string[] {
   return [...out].sort();
 }
 
+/**
+ * The logins the verifiers need, declared by the verifiers repository itself in
+ * identities.yaml (name, role, purpose). The Admin supplies only the values.
+ * Without that file, the names are read from the code (process.env.X).
+ */
+export interface Identity { name: string; role?: string; purpose?: string; secret?: boolean }
+function identitiesIn(dir: string): { declared: boolean; list: Identity[] } {
+  const f = join(dir, 'identities.yaml');
+  if (existsSync(f)) {
+    try {
+      const doc = parse(readFileSync(f, 'utf8'));
+      return { declared: true, list: (doc.identities ?? []).filter((i: any) => i?.env).map((i: any) => ({ name: String(i.env), role: i.role, purpose: i.purpose, secret: !!i.secret })) };
+    } catch { /* fall through to the code scan */ }
+  }
+  return { declared: false, list: envVarsIn(dir).map((name) => ({ name, secret: /PASS|TOKEN|SECRET/.test(name) })) };
+}
+
 async function existingSecrets(key: string): Promise<Record<string, string>> {
   const r = await pool.query('SELECT secrets FROM applications WHERE key = $1', [key]);
   return r.rowCount ? open(r.rows[0].secrets) : {};
@@ -177,15 +202,19 @@ export async function testStep(step: Step, d: Draft, editing: string | null): Pr
       const other = Object.values(config.repositories).find((r) => r.github.toLowerCase() === g.repository.toLowerCase() && r.key !== d.key);
       if (other) { checks.push(fail('Repository', `${g.repository} is already onboarded as ${other.app ?? other.key}`)); break; }
       if (!g.base_branch) { checks.push(fail('Base branch', 'Enter the branch pull requests merge into')); break; }
-      if (g.adapter === 'api') {
-        if (!process.env.QIVVRA_GITHUB_TOKEN) { checks.push(fail('GitHub access', 'The engine has no QIVVRA_GITHUB_TOKEN. Install the QIVVRA GitHub App (or set a token) for your organisation first.')); break; }
+      if (g.adapter !== 'local-git') {
+        const own = g.adapter === 'token';
+        if (own && !secrets.GITHUB_TOKEN) { checks.push(fail('Access token', 'Enter a token with access to this repository')); break; }
+        if (!own && !process.env.QIVVRA_GITHUB_TOKEN) { checks.push(fail('Organisation connection', 'QIVVRA has no organisation connection yet (QIVVRA_GITHUB_TOKEN). Choose "Access token for this repository", or install the QIVVRA GitHub App first.')); break; }
+        checks.push(pass('Credentials', own ? 'Access token for this repository' : 'Organisation connection'));
+        const auth = { secrets: (own ? { GITHUB_TOKEN: secrets.GITHUB_TOKEN } : {}) as Record<string, string> };
         try {
-          const repo = await githubApi(`/repos/${g.repository}`);
+          const repo = await githubApi(`/repos/${g.repository}`, {}, auth);
           checks.push(pass('Repository reachable', `${repo.full_name} · ${repo.private ? 'private' : 'public'}`));
           const perms = repo.permissions ?? {};
           checks.push(perms.push || perms.admin || perms.maintain ? pass('Can post statuses and comments') : warn('Permissions', 'The token may not be able to post commit statuses; check its permissions'));
         } catch (e) { checks.push(fail('Repository', tail(e))); break; }
-        try { await githubApi(`/repos/${g.repository}/branches/${encodeURIComponent(g.base_branch)}`); checks.push(pass('Base branch', g.base_branch)); }
+        try { await githubApi(`/repos/${g.repository}/branches/${encodeURIComponent(g.base_branch)}`, {}, auth); checks.push(pass('Base branch', g.base_branch)); }
         catch { checks.push(fail('Base branch', `${g.base_branch} not found`)); }
       } else {
         const dir = localPath(g.path ?? '');
@@ -224,12 +253,31 @@ export async function testStep(step: Step, d: Draft, editing: string | null): Pr
     }
     case 'xray': {
       const x = d.xray ?? {} as Draft['xray'];
-      if (!x.path) { checks.push(fail('Results folder', "Where the team's CI writes <commit>/junit.xml")); break; }
-      const dir = localPath(x.path);
-      try { mkdirSync(dir, { recursive: true }); accessSync(dir, constants.R_OK | constants.W_OK); checks.push(pass('Results folder', dir)); }
-      catch (e) { checks.push(fail('Results folder', tail(e))); break; }
-      const commits = readdirSync(dir).filter((n) => existsSync(join(dir, n, 'junit.xml')));
-      checks.push(commits.length ? pass('Team results', `${commits.length} commit(s) with results`) : warn('Team results', 'None yet; they appear when the team CI runs on a pull request'));
+      if (x.adapter === 'cloud') {
+        const base = x.base_url || XRAY_CLOUD;
+        if (!x.client_id) { checks.push(fail('Client ID', 'From Xray: Global settings → API Keys')); break; }
+        if (!secrets.XRAY_CLIENT_SECRET) { checks.push(fail('Client secret', 'Enter the client secret of that API key')); break; }
+        let token: string;
+        try { token = await xrayToken(base, x.client_id, secrets.XRAY_CLIENT_SECRET); checks.push(pass('Authenticated', base)); }
+        catch (e) { const m = tail(e); checks.push(fail('Xray Cloud', m === 'fetch failed' ? `Could not reach ${base}` : m)); break; }
+        const project = d.jira?.project;
+        if (project) {
+          try {
+            const r = await xrayGraphql(base, token, 'query($jql: String, $limit: Int!) { getTestExecutions(jql: $jql, limit: $limit) { total } getTests(jql: $jql, limit: $limit) { total } }',
+              { jql: `project = "${project}"`, limit: 1 });
+            checks.push(pass('Project readable', `${project}: ${r.getTests?.total ?? 0} test cases, ${r.getTestExecutions?.total ?? 0} test executions`));
+          } catch (e) { checks.push(fail('Project', tail(e))); break; }
+        }
+        checks.push(warn('Team CI convention', `Import each commit's results as a Test Execution labelled ${commitLabel('<sha>')} (for example ${commitLabel('3f6e20d')}), so QIVVRA finds the right run`));
+      } else {
+        if (!x.path) { checks.push(fail('Results folder', "Where the team's CI writes <commit>/junit.xml")); break; }
+        const dir = localPath(x.path);
+        try { mkdirSync(dir, { recursive: true }); accessSync(dir, constants.R_OK | constants.W_OK); checks.push(pass('Results folder', dir)); }
+        catch (e) { checks.push(fail('Results folder', tail(e))); break; }
+        const commits = readdirSync(dir).filter((n) => existsSync(join(dir, n, 'junit.xml')));
+        checks.push(commits.length ? pass('Team results', `${commits.length} commit(s) with results`) : warn('Team results', 'None yet; they appear when the team CI runs on a pull request'));
+        checks.push(warn('Demo mode', 'JUnit files on the engine host. Connect Xray Cloud for real projects.'));
+      }
       const w = Number(x.wait_seconds);
       checks.push(Number.isInteger(w) && w >= 0 && w <= 3600 ? pass('Wait for results', `${w} s`) : fail('Wait for results', '0 to 3600 seconds'));
       checks.push(pass('Role', "Shown as context only; the team's results never decide the disposition"));
@@ -282,7 +330,10 @@ export async function testStep(step: Step, d: Draft, editing: string | null): Pr
           : missing.length ? warn('Coverage', `${obls.length - missing.length}/${obls.length} obligations have a check. Missing: ${missing.slice(0, 5).map((o) => `${o.id} (${o.check})`).join(', ')}${missing.length > 5 ? '…' : ''}. Those will be NOT ASSESSED.`)
           : pass('Coverage', `All ${obls.length} obligations have a check`));
       } else checks.push(warn('Coverage', 'Test the policy repository first to check coverage'));
-      found.envVars = envVarsIn(dir);
+      const ids = identitiesIn(dir);
+      found.identities = ids.list;
+      checks.push(ids.declared ? pass('Test identities declared', `${ids.list.length} in identities.yaml: ${ids.list.map((i) => i.name).join(', ')}`)
+        : ids.list.length ? warn('Test identities', `No identities.yaml; ${ids.list.length} found in the code. Declare them with role and purpose in identities.yaml.`) : warn('Test identities', 'The verifiers declare none'));
       found.commit = await commitOf(dir);
       break;
     }
@@ -303,21 +354,15 @@ export async function testStep(step: Step, d: Draft, editing: string | null): Pr
       break;
     }
     case 'identities': {
-      const ids = d.identities ?? [];
-      const names = ids.map((i) => i.name);
-      for (const i of ids) {
-        if (!/^[A-Z][A-Z0-9_]*$/.test(i.name ?? '')) checks.push(fail('Variable name', `"${i.name}": upper-case, digits and underscores`));
-        else checks.push(secrets[i.name] ? pass(i.name, i.value ? 'Will be stored encrypted' : 'Stored value kept') : fail(i.name, 'Enter a value'));
-      }
-      if (new Set(names).size !== names.length) checks.push(fail('Duplicates', 'Each variable once'));
       const vdir = d.verifiers?.source ? sourceDir(d, 'verifiers') : null;
-      if (vdir && existsSync(vdir)) {
-        const wanted = envVarsIn(vdir);
-        const notGiven = wanted.filter((n) => !names.includes(n));
-        found.envVars = wanted;
-        if (notGiven.length) checks.push(warn('Not provided', `${notGiven.join(', ')}: the verifiers fall back to their built-in defaults`));
+      if (!vdir || !existsSync(vdir)) { checks.push(fail('Verifiers repository', 'Test the verifiers repository step first: it declares which logins are needed')); break; }
+      const needed = identitiesIn(vdir).list;
+      found.identities = needed;
+      if (!needed.length) { checks.push(pass('Test identities', 'The verifiers need none')); break; }
+      for (const n of needed) {
+        const typed = (d.identities ?? []).find((i) => i.name === n.name)?.value;
+        checks.push(secrets[n.name] ? pass(n.name, `${n.role ?? ''}${typed ? ' · will be stored encrypted' : ' · stored value kept'}`.replace(/^ · /, '')) : fail(n.name, `Enter the ${n.secret ? 'secret' : 'login'}${n.role ? ` for ${n.role}` : ''}`));
       }
-      if (!ids.length) checks.push(warn('Test identities', 'None given; the verifiers use their built-in defaults'));
       break;
     }
   }
@@ -368,8 +413,16 @@ async function save(req: Request, res: Response, editing: string | null) {
   const results: StepResult[] = [];
   for (const s of STEPS) results.push(await testStep(s, d, editing));
   if (results.some((r) => r.status === 'fail')) return res.status(422).json({ error: 'CHECKS_FAILED', results });
+  // The verifiers repository decides which logins exist; keep exactly those.
+  const vdir = sourceDir(d, 'verifiers');
+  d.identities = identitiesIn(vdir).list.map((n) => ({ name: n.name, value: (d.identities ?? []).find((i) => i.name === n.name)?.value }));
   const secrets = { ...(editing ? await existingSecrets(editing) : {}), ...secretsOf(d) };
-  for (const k of Object.keys(secrets)) if (k !== 'JIRA_TOKEN' && k !== 'POLICIES_GIT_TOKEN' && k !== 'VERIFIERS_GIT_TOKEN' && !d.identities.some((i) => i.name === k)) delete secrets[k];
+  // Keep only the secrets the saved settings use.
+  const keep = new Set(['POLICIES_GIT_TOKEN', 'VERIFIERS_GIT_TOKEN', ...d.identities.map((i) => i.name)]);
+  if (d.github.adapter === 'token') keep.add('GITHUB_TOKEN');
+  if (d.jira.adapter === 'cloud') keep.add('JIRA_TOKEN');
+  if (d.xray.adapter === 'cloud') keep.add('XRAY_CLIENT_SECRET');
+  for (const k of Object.keys(secrets)) if (!keep.has(k)) delete secrets[k];
   const stored = withoutSecrets(d);
   const actor = req.user!.email;
   const status = editing ? (await pool.query('SELECT status FROM applications WHERE key = $1', [editing])).rows[0]?.status ?? 'active' : 'active';

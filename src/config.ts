@@ -18,7 +18,7 @@ export interface RepoConfig {
   sources: {
     github: { adapter: 'local-git' | 'api'; path?: string };
     jira: { adapter: 'file' | 'cloud'; path?: string; base_url?: string; email?: string };
-    xray: { adapter: 'junit'; path: string; wait_seconds?: number };
+    xray: { adapter: 'junit' | 'cloud'; path?: string; base_url?: string; client_id?: string; wait_seconds?: number };
   };
   policies: { path: string; pull?: boolean; repository?: string };
   environment: { name: string; base_url: string; log_path?: string; wait_for_commit_seconds: number };
