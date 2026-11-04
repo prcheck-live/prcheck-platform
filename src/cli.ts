@@ -14,6 +14,7 @@ const opt = (n: string) => { const i = args.indexOf(`--${n}`); return i >= 0 ? a
 (async () => {
   await migrate();
   await loadApplications();
+  const { loadMembers } = await import('./auth'); await loadMembers();
   const repo = config.repositories[opt('repo') ?? 'vendorpay'];
   if (!repo || !opt('pr') || !opt('sha')) { console.error('Need --repo, --pr and --sha'); process.exit(2); }
   const req = {

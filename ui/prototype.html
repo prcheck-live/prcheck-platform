@@ -246,6 +246,18 @@ tr.row.cand td:first-child{box-shadow:inset 4px 0 0 var(--amber)}
 
 /* Drawer, toast */
 .scrim{position:fixed;inset:0;background:rgba(16,42,67,.28);z-index:39}
+.field input[type=checkbox],.field input[type=radio]{width:auto;padding:0;flex:none;margin:0}
+.rchip.auth{background:var(--purple-tint);color:var(--purple-text)}
+.appcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.appcard{display:flex;flex-direction:column;gap:6px;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font:inherit;color:var(--ink);cursor:pointer}
+.appcard:hover{border-color:#C9D5F7;box-shadow:0 2px 10px rgba(16,42,67,.06)}
+.appcard .an{font-weight:700;font-size:16px}
+.appcard .chips{display:flex;gap:6px;flex-wrap:wrap;min-height:22px}
+.appcard .chip{border-radius:999px;padding:1px 8px;font-size:11.5px;font-weight:700;white-space:nowrap}
+.appcard .c-ok{background:var(--green-tint);color:var(--green-text);border:1px solid var(--green-line)}
+.appcard .c-bad{background:var(--red-tint);color:var(--red-text);border:1px solid var(--red-line)}
+.appcard .c-warn{background:var(--amber-tint);color:var(--amber-text);border:1px solid var(--amber-line)}
+.appcard .c-neu{background:var(--neutral-tint);color:var(--slate-text);border:1px solid var(--line)}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .wiz{display:grid;grid-template-columns:230px minmax(0,1fr);gap:20px;align-items:start;max-width:1040px}
 .wiz-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;position:sticky;top:80px}
@@ -949,13 +961,16 @@ const VALID = ['home','command','change','revisions','graph','obligations','gaps
 const ALL_CHANGE = ['command','change','revisions','graph','obligations','gaps','evidence','case'];
 function access(a){
   a = a || ME;
-  if(a.sysRole==='Admin') return {routes:['home','integrations','onboard','profiles','org-settings'], scope:'none'};
-  if(a.sysRole==='Assurance Lead') return {routes:['home',...ALL_CHANGE,'integrations','profiles','org-settings'], scope:'all'};
-  if(a.sysRole==='Contributor') return {routes:['home',...ALL_CHANGE,'org-settings'], scope: a.auth.includes('Security') ? 'all' : 'VendorPay'};
-  return {routes:['home',...ALL_CHANGE,'org-settings'], scope:'all'};
+  /* scope: 'none' for the Admin, 'all', or the names of the applications the Admin assigned this member to */
+  const scope = a.sysRole==='Admin' ? 'none' : (!a.apps || a.apps==='all') ? 'all' : a.apps.map(appName);
+  if(a.sysRole==='Admin') return {routes:['home','integrations','onboard','profiles','org-settings'], scope};
+  if(a.sysRole==='Assurance Lead') return {routes:['home',...ALL_CHANGE,'integrations','profiles','org-settings'], scope};
+  return {routes:['home',...ALL_CHANGE,'org-settings'], scope};
 }
+function appName(key){ const a = (S && S.apps || []).find(x=>x.key===key); return a ? a.name : key; }
+const scopeText = () => { const sc = access().scope; return Array.isArray(sc) ? sc.join(', ') : sc; };
 const allowed = r => access().routes.includes(r);
-const inScope = app => { const sc = access().scope; return sc==='all' || sc===app; };
+const inScope = app => { const sc = access().scope; return sc==='all' || sc===app || (Array.isArray(sc) && sc.includes(app)); };
 function homeLabel(a){ a = a || ME;
   if(a.sysRole==='Admin') return 'Overview';
   if(a.auth.includes('Finance')) return 'Decisions';
@@ -984,9 +999,10 @@ function viewDenied(r){
 function viewHome(){
   const titles = {Admin:'Platform administration', 'Assurance Lead':'My assurance queue', Contributor: ME.auth.includes('Security') ? 'Security review' : 'My changes', Viewer: ME.auth.includes('Finance') ? 'Decisions waiting for you' : 'Release readiness'};
   return `<div class="ph"><div><h1>${esc(ME.name.split(' ')[0])}'s workspace</h1><p class="sub">Signed in as <b>${esc(ME.name)}</b>, ${esc(ME.role)} · ${esc(roleLabel(ME))}</p></div></div>
+    ${appCards()}
     ${forYou()}
     <div class="card"><h2>What your role can do</h2><ul class="small" style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px">${canList(ME).map(x=>`<li>${esc(x)}</li>`).join('')}</ul>
-    <p class="small muted" style="margin:12px 0 0">Your menu shows only the pages your role can open${access().scope!=='all' && access().scope!=='none' ? `, and only changes in ${access().scope}` : ''}.</p></div>`;
+    <p class="small muted" style="margin:12px 0 0">Your menu shows only the pages your role can open${access().scope!=='all' && access().scope!=='none' ? `, and only changes in ${scopeText()}` : ''}.</p></div>`;
 }
 /* In-page routing: works even where the host blocks URL/hash changes (sandboxed previews). The hash is only a bookmark. */
 let ROUTE = (()=>{ try{ const h = location.hash.replace('#',''); return VALID.includes(h) ? h : 'home'; }catch(e){ return 'home'; } })();
@@ -1598,7 +1614,7 @@ function integStatus(name, s){ if(name==='Policy engines' && S.faults.policyEngi
 function viewIntegrations(){
   const err = S.faults.policyEngine ? `<div class="notice red"><span><b>Policy engines: connection error.</b> Affected evidence source: authority resolution for every profile. Current dispositions stay valid because their evidence was bound before the error, but new assurance runs cannot resolve obligations.</span><button class="btn" data-action="nav" data-id="org-settings">Open settings</button></div>` : '';
   return `<div class="ph"><div><h1>Integrations</h1><p class="sub">Connect change producers, enterprise context, verification sources, and delivery controls.</p></div><div class="acts">${gate(can('admin'), `<button class="btn primary" data-action="pw-add">Add application</button>`, NEEDS.admin)}</div></div>
-    ${err}${pwAppsTable()}
+    ${err}${pwAppsTable()}${can('admin') ? membersSection(ACCOUNTS.map(memberView), protoApps()) : ''}
     <div class="integ">${INTEG.map(([g,items])=>`<section class="col" aria-label="${g}"><h2>${g}</h2>${items.map(([n,ic,s])=>{ const st = integStatus(n,s); return `<button class="itile" data-action="integ" data-id="${esc(n)}"><span class="ic">${ic}</span><span><b>${esc(n)}</b><small class="s-${st.split(' ')[0]}">${st}</small></span></button>`; }).join('')}</section>`).join('')}</div>
     <div class="notice info" style="margin-top:22px;display:block"><b style="color:var(--medium)">Mature product shell</b><br><span class="small">The Conclave slice implements selected integrations deeply while the UI preserves the extensible product architecture.</span></div>`;
 }
@@ -1918,6 +1934,141 @@ document.addEventListener('click', e => {
     case 'pw-cancel': case 'pw-done': S.wiz = null; go('integrations'); break;
   }
 });
+
+/* ---------- Members (Platform Admin): who uses QIVVRA, their role, authority and applications ---------- */
+const MEM_ROLES = ['Assurance Lead','Contributor','Viewer','Admin'];
+const MEM_AUTH = ['Finance','Security','Compliance','Platform'];
+const ROLE_HELP = {'Assurance Lead':'Runs assurance, answers requests, proposes exceptions', 'Contributor':'Works on changes; requests re-runs, acknowledges or disputes findings', 'Viewer':'Reads changes, evidence and release readiness', 'Admin':'Configures QIVVRA: applications, integrations, members. Sees no change evidence.'};
+const memberView = a => ({ email:a.email, name:a.name, designation:a.role, sysRole:a.sysRole, authorities:a.auth||[], apps:a.apps==null?'all':a.apps, status:a.status||'active', lastSignIn:a.lastSignIn||null });
+const appChips = (apps, all) => apps==='all' ? '<span class="rchip">All applications</span>' : !apps.length ? '<span class="small muted">—</span>' : apps.map(k=>`<span class="rchip">${esc((all.find(x=>x.key===k)||{name:k}).name)}</span>`).join(' ');
+function membersSection(list, apps){
+  const f = S.memFilter || (S.memFilter = {q:'', role:'All', app:'All'});
+  const q = f.q.trim().toLowerCase();
+  const rows = list.filter(m => (!q || (m.name+' '+m.email+' '+m.designation).toLowerCase().includes(q)) && (f.role==='All' || m.sysRole===f.role) && (f.app==='All' || m.apps==='all' || m.apps.includes(f.app)));
+  const roleCount = r => list.filter(m=>m.sysRole===r && m.status==='active').length;
+  return `<div class="card" style="padding:0;margin-bottom:22px" id="members">
+    <div style="padding:16px 20px 10px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start"><div><h2 style="margin:0">Members</h2>
+      <p class="small muted" style="margin:4px 0 0">${list.filter(m=>m.status==='active').length} active · ${MEM_ROLES.map(r=>`${roleCount(r)} ${r==='Admin'?'Platform Admin':r}`).join(' · ')}. Each member sees only the applications assigned here, as cards on their home screen.</p></div>
+      <button class="btn primary" data-action="mem-add">Add member</button></div>
+    <div class="toolbar" style="margin:0 20px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <label class="sr-only" for="mem-q">Search members</label><input type="search" id="mem-q" data-mem-filter="q" placeholder="Search name, email or designation" value="${esc(f.q)}" style="flex:1 1 220px;min-width:0;border:1px solid var(--line);border-radius:8px;padding:7px 10px">
+      <label class="sr-only" for="mem-role">Role</label><select id="mem-role" class="sel" data-mem-filter="role"><option value="All">All roles</option>${MEM_ROLES.map(r=>`<option value="${r}"${f.role===r?' selected':''}>${r==='Admin'?'Platform Admin':r}</option>`).join('')}</select>
+      <label class="sr-only" for="mem-app">Application</label><select id="mem-app" class="sel" data-mem-filter="app"><option value="All">All applications</option>${apps.map(a=>`<option value="${esc(a.key)}"${f.app===a.key?' selected':''}>${esc(a.name)}</option>`).join('')}</select></div>
+    <div class="tbl-wrap" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th>Member</th><th>Designation</th><th>Role and authority</th><th>Applications</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead><tbody>
+    ${rows.map(m=>`<tr${m.status==='disabled'?' style="opacity:.6"':''}><td><b>${esc(m.name)}</b>${m.email===ME.email?' <span class="small muted">(you)</span>':''}<div class="mono small muted">${esc(m.email)}</div></td><td class="small">${esc(m.designation)}</td>
+      <td><span class="rchip">${m.sysRole==='Admin'?'Platform Admin':esc(m.sysRole)}</span> ${m.authorities.map(x=>`<span class="rchip auth">Authority: ${esc(x)}</span>`).join(' ')}</td>
+      <td style="max-width:260px">${m.sysRole==='Admin' ? '<span class="small muted">No change evidence</span>' : appChips(m.apps, apps)}</td>
+      <td><span class="${m.status==='disabled'?'s-Available':'s-Connected'}">${m.status==='disabled'?'Deactivated':'Active'}</span></td>
+      <td class="small">${m.lastSignIn ? esc(typeof m.lastSignIn==='string' && /^\d{4}-\d{2}-\d{2}T/.test(m.lastSignIn) ? fmt(new Date(m.lastSignIn)) : m.lastSignIn) : '<span class="muted">Never</span>'}</td>
+      <td><div class="btnrow" style="flex-wrap:nowrap"><button class="btn" data-action="mem-edit" data-id="${esc(m.email)}">Edit</button>${m.email===ME.email?'':`<button class="btn" data-action="mem-status" data-id="${esc(m.email)}">${m.status==='disabled'?'Reactivate':'Deactivate'}</button>`}</div></td></tr>`).join('') || `<tr><td colspan="7" class="small muted" style="padding:16px">No members match.</td></tr>`}
+    </tbody></table></div></div>`;
+}
+function memberForm(m, apps){
+  const creating = !m, v = m || {name:'', email:'', designation:'', sysRole:'Contributor', authorities:[], apps:[], status:'active'};
+  const admin = v.sysRole==='Admin', all = v.apps==='all';
+  const err = k => `<span class="err" id="mf-e-${k}"></span>`;
+  return `<form id="mf" onsubmit="return false" style="display:flex;flex-direction:column;gap:12px">
+    <div class="field"><label for="mf-name">Full name</label><input id="mf-name" value="${esc(v.name)}" autocomplete="off">${err('name')}</div>
+    <div class="field"><label for="mf-email">Work email</label><input id="mf-email" type="email" value="${esc(v.email)}"${creating?'':' disabled'} autocomplete="off" spellcheck="false">${creating?'':'<span class="small muted">The email identifies the member and cannot change.</span>'}${err('email')}</div>
+    <div class="field"><label for="mf-designation">Designation</label><input id="mf-designation" value="${esc(v.designation)}" placeholder="For example Finance Controller, Tech Lead – Payments" autocomplete="off">${err('designation')}</div>
+    <div class="field"><label for="mf-role">Role in QIVVRA</label><select id="mf-role" data-mf="role">${MEM_ROLES.map(r=>`<option value="${r}"${v.sysRole===r?' selected':''}>${r==='Admin'?'Platform Admin':r}</option>`).join('')}</select>
+      <span class="small muted" id="mf-role-help">${esc(ROLE_HELP[v.sysRole])}</span>${err('sysRole')}</div>
+    <fieldset class="field" id="mf-auth-set" style="border:0;padding:0;margin:0"${admin?' disabled':''}><legend style="font-size:12.5px;font-weight:600;margin-bottom:4px">Authority <span class="muted" style="font-weight:400">(optional)</span></legend>
+      <span class="small muted" style="display:block;margin-bottom:6px">The rules this person owns. They approve changes to them in the policy repository.</span>
+      <div style="display:flex;gap:14px;flex-wrap:wrap">${MEM_AUTH.map(x=>`<label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="mf-auth" value="${x}"${v.authorities.includes(x)?' checked':''}> ${x}</label>`).join('')}</div>${err('authorities')}</fieldset>
+    <fieldset class="field" id="mf-app-set" style="border:0;padding:0;margin:0"${admin?' disabled':''}><legend style="font-size:12.5px;font-weight:600;margin-bottom:4px">Applications</legend>
+      <span class="small muted" style="display:block;margin-bottom:6px">The member sees only these applications' changes, each as a card on their home screen.</span>
+      <label class="small" style="display:flex;gap:6px;align-items:center;margin-bottom:6px"><input type="checkbox" id="mf-all" data-mf="all"${all?' checked':''}> <b>All applications</b>, including ones onboarded later</label>
+      <div id="mf-apps" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px 14px">${apps.map(a=>`<label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="mf-app" value="${esc(a.key)}"${all||(v.apps!=='all'&&v.apps.includes(a.key))?' checked':''}${all?' disabled':''}> ${esc(a.name)}</label>`).join('')}</div>${err('apps')}</fieldset>
+    <div class="field"><label for="mf-password">${creating?'Initial password':'Reset password <span class="muted">(optional)</span>'}</label><input id="mf-password" type="password" autocomplete="new-password" placeholder="${creating?'At least 10 characters, letters and digits':'Leave blank to keep the current password'}">
+      <span class="small muted">For the demo sign-in. In production, members sign in with your identity provider (SSO).</span>${err('password')}</div>
+    <div id="mf-e-form" class="err"></div>
+    <div class="btnrow"><button class="btn primary" data-action="mem-save" data-id="${creating?'new':esc(v.email)}">${creating?'Add member':'Save changes'}</button></div></form>`;
+}
+function readMemberForm(){
+  const all = $('#mf-all').checked;
+  return { name:$('#mf-name').value.trim(), email:$('#mf-email').value.trim().toLowerCase(), designation:$('#mf-designation').value.trim(), sysRole:$('#mf-role').value,
+    authorities:[...document.querySelectorAll('input[name="mf-auth"]:checked')].map(x=>x.value), allApps:all,
+    apps: all ? [] : [...document.querySelectorAll('input[name="mf-app"]:checked')].map(x=>x.value), password:$('#mf-password').value };
+}
+function validateMember(v, creating, emails){
+  const e = {};
+  if(creating){ if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email)) e.email = 'Enter a work email like name@company.com'; else if(emails.includes(v.email)) e.email = 'This person is already a member'; }
+  if(v.name.length<2) e.name = 'Enter the full name';
+  if(v.designation.length<2) e.designation = 'Enter the designation, for example Finance Controller';
+  if(v.sysRole!=='Admin' && !v.allApps && !v.apps.length) e.apps = 'Choose at least one application, or all applications';
+  if((creating || v.password) && (v.password.length<10 || !/[A-Za-z]/.test(v.password) || !/\d/.test(v.password))) e.password = 'At least 10 characters, with letters and digits';
+  return e;
+}
+function showMemberErrors(e, msg){
+  document.querySelectorAll('#mf .err').forEach(x=>x.textContent='');
+  Object.entries(e||{}).forEach(([k,m])=>{ const x = $('#mf-e-'+k); if(x) x.textContent = m; });
+  if(msg){ const x = $('#mf-e-form'); if(x) x.textContent = msg; }
+  const first = document.querySelector('#mf .err:not(:empty)'); if(first) first.scrollIntoView({block:'nearest'});
+}
+/* Prototype: members are kept in memory. The platform replaces these actions with its API. */
+const protoApps = () => (S.apps||[]).map(a=>({key:a.key, name:a.name}));
+function protoSaveMember(id){
+  const v = readMemberForm(), creating = id==='new';
+  const e = validateMember(v, creating, ACCOUNTS.map(a=>a.email));
+  const cur = creating ? null : ACCOUNTS.find(a=>a.email===id);
+  if(cur && cur.email===ME.email && v.sysRole!=='Admin') e.sysRole = 'You cannot remove your own Admin role';
+  if(Object.keys(e).length) return showMemberErrors(e);
+  const nm = v.name.trim().split(/\s+/);
+  const fields = { name:v.name, short: nm.length>1 ? `${nm[0][0]}. ${nm.slice(1).join(' ')}` : nm[0], initials: nm.map(w=>w[0]).slice(0,2).join('').toUpperCase(), role:v.designation, tagRole:v.designation.split(',')[0].trim(),
+    sysRole:v.sysRole, auth: v.sysRole==='Admin'?[]:v.authorities, apps: v.sysRole==='Admin'?[]:(v.allApps?'all':v.apps), job: ROLE_HELP[v.sysRole] };
+  if(v.password) fields.pw = v.password;
+  if(creating) ACCOUNTS.push({ email:v.email, status:'active', ...fields }); else Object.assign(cur, fields);
+  S.platformAudit.unshift({at:fmt(new Date()), who:ME.short, text:`${creating?'Added':'Updated'} member ${v.name} (${v.sysRole})`});
+  closeDrawer(); toast(creating ? `${v.name} added. They see ${v.sysRole==='Admin'?'platform settings only':v.allApps?'all applications':v.apps.length+' application'+(v.apps.length===1?'':'s')} after signing in.` : `${v.name} updated.`); render();
+}
+document.addEventListener('change', e => {
+  const el = e.target;
+  if(el.dataset && el.dataset.mf==='role'){ const admin = el.value==='Admin'; $('#mf-auth-set').disabled = admin; $('#mf-app-set').disabled = admin; $('#mf-role-help').textContent = ROLE_HELP[el.value]; }
+  if(el.dataset && el.dataset.mf==='all'){ document.querySelectorAll('input[name="mf-app"]').forEach(x=>{ x.disabled = el.checked; if(el.checked) x.checked = true; }); }
+  if(el.dataset && el.dataset.memFilter && el.dataset.memFilter!=='q'){ S.memFilter[el.dataset.memFilter] = el.value; render(); }
+});
+document.addEventListener('input', e => {
+  const el = e.target; if(el.closest && el.closest('#mf') && el.id){ const x = $('#mf-e-'+el.id.replace('mf-','')); if(x) x.textContent=''; }
+  if(!el.dataset || el.dataset.memFilter!=='q') return;
+  S.memFilter.q = el.value; const pos = el.selectionStart; render(); const q = $('#mem-q'); if(q){ q.focus(); q.setSelectionRange(pos,pos); }
+});
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-action]'); if(!t) return;
+  const a = t.dataset.action, id = t.dataset.id;
+  switch(a){
+    case 'mem-add': openDrawer('Add member', 'Role, authority and applications', memberForm(null, protoApps())); break;
+    case 'mem-edit': { const m = ACCOUNTS.find(x=>x.email===id); openDrawer(`Edit ${m.name}`, esc(m.email), memberForm(memberView(m), protoApps())); } break;
+    case 'mem-save': protoSaveMember(id); break;
+    case 'mem-status': { const m = ACCOUNTS.find(x=>x.email===id);
+      if(m.status!=='disabled' && m.sysRole==='Admin' && ACCOUNTS.filter(x=>x.sysRole==='Admin' && x.status!=='disabled').length<2){ toast('QIVVRA needs at least one active Platform Admin.'); break; }
+      m.status = m.status==='disabled' ? 'active' : 'disabled';
+      S.platformAudit.unshift({at:fmt(new Date()), who:ME.short, text:`${m.status==='disabled'?'Deactivated':'Reactivated'} member ${m.name}`});
+      toast(m.status==='disabled' ? `${m.name} deactivated: they can no longer sign in.` : `${m.name} reactivated.`); render(); } break;
+    case 'app-open': S.ccFilter.app = id; go('command'); break;
+  }
+});
+
+/* ---------- Your applications: one card per application the member works on ---------- */
+function myApps(){
+  const sc = access().scope; if(sc==='none') return [];
+  return (S.apps||[]).filter(a=>sc==='all' || (Array.isArray(sc) && sc.includes(a.name)) || sc===a.name).map(a=>({key:a.key, name:a.name, github:a.draft.github.repository, status:a.status}));
+}
+function appCards(){
+  const apps = myApps(); if(!apps.length) return '';
+  const vms = allVMs();
+  const cards = apps.map(a=>{
+    const vs = vms.filter(v=>v.app===a.name), n = c => vs.filter(v=>v.disp.code===c).length;
+    const blocked = n('NOT_READY'), ready = n('READY')+n('READY_EXC'), ind = n('INDETERMINATE'), wait = n('NONE');
+    const tone = blocked ? 'var(--red)' : ind ? 'var(--amber)' : vs.length ? 'var(--green)' : 'var(--line)';
+    return `<button class="appcard" data-action="app-open" data-id="${esc(a.name)}" style="border-top:3px solid ${tone}">
+      <span class="an">${esc(a.name)}${a.status==='paused'?' <span class="s-Requires small">· paused</span>':''}</span><span class="mono small muted">${esc(a.github)}</span>
+      <span class="ac">${vs.length ? `<b>${vs.length}</b> change${vs.length===1?'':'s'}` : '<span class="muted">No changes yet</span>'}</span>
+      <span class="chips">${blocked?`<span class="chip c-bad">${blocked} NOT READY</span>`:''}${ind?`<span class="chip c-warn">${ind} INDETERMINATE</span>`:''}${ready?`<span class="chip c-ok">${ready} READY</span>`:''}${wait?`<span class="chip c-neu">${wait} awaiting</span>`:''}</span>
+      <span class="small" style="color:var(--teal);font-weight:600">Open changes →</span></button>`;
+  }).join('');
+  return `<section aria-label="Your applications" style="margin-bottom:20px"><h2 style="font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--slate-text);margin:0 0 10px">Your applications · ${apps.length}</h2><div class="appcards">${cards}</div></section>`;
+}
 
 /* ---------- Profiles ---------- */
 const PROFILES = {
@@ -2454,13 +2605,16 @@ function forYou(){
 
 /* ================= Sign-in (demo identities) ================= */
 const ACCOUNTS = [
-  {email:'a.rao@qivvra.demo', short:'A. Rao', name:'Anika Rao', role:'QE / Assurance Lead', tagRole:'Assurance Lead', sysRole:'Assurance Lead', auth:[], initials:'AR', job:'Runs assurance, chases gaps, explains blocks'},
-  {email:'r.das@qivvra.demo', short:'R. Das', name:'Rohan Das', role:'Tech Lead, VendorPay', tagRole:'Tech Lead', sysRole:'Contributor', auth:[], initials:'RD', job:'Sees exactly what failed and fixes it'},
-  {email:'m.iyer@qivvra.demo', short:'M. Iyer', name:'Meera Iyer', role:'Finance Controller', tagRole:'Finance Controller', sysRole:'Viewer', auth:['Finance'], initials:'MI', job:'Decides finance intent and exceptions'},
-  {email:'s.qureshi@qivvra.demo', short:'S. Qureshi', name:'Sana Qureshi', role:'Security Architect', tagRole:'Security Architect', sysRole:'Contributor', auth:['Security'], initials:'SQ', job:'Reviews security obligations and evidence'},
-  {email:'k.shah@qivvra.demo', short:'K. Shah', name:'Karan Shah', role:'Release Manager', tagRole:'Release Manager', sysRole:'Viewer', auth:[], initials:'KS', job:'Knows what can ship, and its limits'},
-  {email:'p.nair@qivvra.demo', short:'P. Nair', name:'Priya Nair', role:'Platform Admin', tagRole:'Platform Admin', sysRole:'Admin', auth:[], initials:'PN', job:'Connects tools, manages users and profiles'}
+  {email:'a.rao@qivvra.demo', short:'A. Rao', name:'Anika Rao', role:'QE / Assurance Lead', tagRole:'Assurance Lead', sysRole:'Assurance Lead', auth:[], initials:'AR', job:'Runs assurance, chases gaps, explains blocks', apps:'all', status:'active'},
+  {email:'r.das@qivvra.demo', short:'R. Das', name:'Rohan Das', role:'Tech Lead, VendorPay', tagRole:'Tech Lead', sysRole:'Contributor', auth:[], initials:'RD', job:'Sees exactly what failed and fixes it', apps:['vendorpay'], status:'active'},
+  {email:'m.iyer@qivvra.demo', short:'M. Iyer', name:'Meera Iyer', role:'Finance Controller', tagRole:'Finance Controller', sysRole:'Viewer', auth:['Finance'], initials:'MI', job:'Decides finance intent and exceptions', apps:'all', status:'active'},
+  {email:'s.qureshi@qivvra.demo', short:'S. Qureshi', name:'Sana Qureshi', role:'Security Architect', tagRole:'Security Architect', sysRole:'Contributor', auth:['Security'], initials:'SQ', job:'Reviews security obligations and evidence', apps:'all', status:'active'},
+  {email:'k.shah@qivvra.demo', short:'K. Shah', name:'Karan Shah', role:'Release Manager', tagRole:'Release Manager', sysRole:'Viewer', auth:[], initials:'KS', job:'Knows what can ship, and its limits', apps:'all', status:'active'},
+  {email:'p.nair@qivvra.demo', short:'P. Nair', name:'Priya Nair', role:'Platform Admin', tagRole:'Platform Admin', sysRole:'Admin', auth:[], initials:'PN', job:'Connects tools, manages users and profiles', apps:[], status:'active'}
 ];
+ACCOUNTS.splice(ACCOUNTS.length - 1, 0,
+  {email:'v.bose@qivvra.demo', short:'V. Bose', name:'Vikram Bose', role:'Compliance Officer', tagRole:'Compliance Officer', sysRole:'Viewer', auth:['Compliance'], initials:'VB', job:'Owns audit-trail rules and compliance exceptions', apps:'all', status:'active'},
+  {email:'a.pillai@qivvra.demo', short:'A. Pillai', name:'Arjun Pillai', role:'Platform Engineering Lead', tagRole:'Platform Lead', sysRole:'Contributor', auth:['Platform'], initials:'AP', job:'Owns build, deploy and environment rules', apps:'all', status:'active'});
 /* Roles: Admin · Assurance Lead · Contributor · Viewer, plus a scoped Authority tag. Admin configures but never decides. */
 const PERMS = {run:['Assurance Lead'], importRev:['Assurance Lead'], returnFinding:['Assurance Lead'], route:['Assurance Lead'], proposeExc:['Assurance Lead'], revoke:['Assurance Lead'], requestRerun:['Contributor'], diagnostics:['Admin','Assurance Lead'], admin:['Admin']};
 const can = perm => (PERMS[perm]||[]).includes(ME.sysRole);
@@ -2534,7 +2688,7 @@ function stepCode(){
 }
 function showLogin(msg){ document.querySelector('.app').hidden = true; $('#login').hidden = false; stepSignIn(msg); const e = $('#lg-email'); if(e) e.focus(); }
 function enterApp(acct, remember){
-  ME = ACCOUNTS.find(a=>a.email===acct.email) || acct; pending = null; failed = 0;
+  ME = ACCOUNTS.find(a=>a.email===acct.email) || acct; pending = null; failed = 0; ME.lastSignIn = fmt(new Date());
   if(remember) sess(false, acct.email); else sess(false, null);
   $('#login').hidden = true; document.querySelector('.app').hidden = false;
   setUserChrome();
@@ -2553,7 +2707,7 @@ async function submitLogin(form){
   const btn = $('#lg-submit'); btn.disabled = true; btn.innerHTML = '<span class="st run sm" aria-hidden="true"></span>Signing in…';
   await wait(650);
   const acct = ACCOUNTS.find(a => a.email === email);
-  if(!acct || pass !== DEMO_PASS){
+  if(!acct || acct.status==='disabled' || pass !== (acct.pw || DEMO_PASS)){
     failed++;
     stepSignIn({t:'err', email, m: failed >= 3 ? 'Email or password is incorrect. Use one of the demo accounts below.' : 'Email or password is incorrect. Check both and try again.'});
     $('#lg-pass').focus(); return;

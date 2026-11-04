@@ -13,11 +13,22 @@ import { event, pool } from './db';
 import { get } from './evidence-store';
 import { createAssessment, enqueue } from './pipeline';
 import { applications } from './applications';
+import { members } from './members';
 
 export const ui = Router();
 ui.use(express.json({ limit: '100kb' }));
 
-const publicAccount = (a: Account) => ({ ...a });
+const publicAccount = (a: Account) => { const { passwordHash, ...rest } = a; return rest; };
+/** What the browser needs: the routes, the applications this member sees (by name, as the UI shows them), and those applications. */
+function clientAccess(a: Account) {
+  const acc = access(a);
+  const apps = acc.scope === 'none' ? [] : Object.values(config.repositories).filter((r) => acc.scope === 'all' || (acc.scope as string[]).includes(r.key));
+  return {
+    routes: acc.routes,
+    scope: acc.scope === 'none' || acc.scope === 'all' ? acc.scope : apps.map((r) => r.app ?? r.key),
+    applications: apps.map((r) => ({ key: r.key, name: r.app ?? r.key, github: r.github, jiraProject: r.jira_project, environment: r.environment.base_url, status: r.status ?? 'active' })),
+  };
+}
 const appOf = (repoKey: string) => config.repositories[repoKey]?.app ?? repoKey;
 const handle = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response) =>
   fn(req, res).catch((e) => { console.error(e); res.status(500).json({ error: 'INTERNAL', message: String(e?.message ?? e) }); });
@@ -36,7 +47,9 @@ ui.post('/login', (req, res) => {
   if (!a) return res.status(401).json({ error: 'INVALID_CODE' });
   failures = 0;
   issueSession(res, a, !!remember);
-  res.json({ account: publicAccount(a), access: access(a) });
+  pool.query('UPDATE members SET last_sign_in = now() WHERE email = $1', [a.email]).catch(() => {});
+  a.lastSignIn = new Date().toISOString();
+  res.json({ account: publicAccount(a), access: clientAccess(a) });
 });
 ui.post('/logout', (_req, res) => { clearSession(res); res.json({ ok: true }); });
 
@@ -44,7 +57,7 @@ ui.use(requireUser);
 
 ui.get('/me', (req, res) => {
   const a = req.user!;
-  res.json({ account: publicAccount(a), access: access(a), perms: { run: can(a, 'run'), requestRerun: can(a, 'requestRerun'), admin: can(a, 'admin'), platform: can(a, 'platform') } });
+  res.json({ account: publicAccount(a), access: clientAccess(a), perms: { run: can(a, 'run'), requestRerun: can(a, 'requestRerun'), admin: can(a, 'admin'), platform: can(a, 'platform') } });
 });
 
 /* ---------- Changes: one per pull request, one revision per head commit ---------- */
@@ -63,7 +76,7 @@ function verifierCatalog(repo: RepoConfig) {
 async function changesFor(user: Account, only?: { repository: string; pr: number }) {
   const rows = (await pool.query(
     `SELECT * FROM assessments ${only ? 'WHERE repository = $1 AND pr_number = $2' : ''} ORDER BY created_at`, only ? [only.repository, only.pr] : [])).rows;
-  const visible = rows.filter((a) => seesApp(user, appOf(a.repository)));
+  const visible = rows.filter((a) => seesApp(user, a.repository));
   const ids = visible.map((a) => a.id);
   const [obls, events, reqs] = ids.length ? await Promise.all([
     pool.query('SELECT * FROM obligation_results WHERE assessment_id = ANY($1) ORDER BY obligation_id', [ids]),
@@ -113,7 +126,7 @@ ui.get('/changes', handle(async (req, res) => {
 
 async function visibleAssessment(req: Request, res: Response) {
   const a = (await pool.query('SELECT * FROM assessments WHERE id = $1', [req.params.id])).rows[0];
-  if (!a || !seesApp(req.user!, appOf(a.repository)) || access(req.user!).scope === 'none') { res.status(404).json({ error: 'NOT_FOUND' }); return null; }
+  if (!a || !seesApp(req.user!, a.repository) || access(req.user!).scope === 'none') { res.status(404).json({ error: 'NOT_FOUND' }); return null; }
   return a;
 }
 
@@ -192,7 +205,7 @@ ui.post('/requests/:rid/resolve', requirePerm('run'), handle(async (req, res) =>
   if (!['upheld', 'check_changed'].includes(outcome)) return res.status(400).json({ error: 'BAD_OUTCOME' });
   if (note.length < 5) return res.status(400).json({ error: 'NOTE_REQUIRED', message: 'Explain the decision' });
   const r = (await pool.query("SELECT * FROM change_requests WHERE id = $1", [req.params.rid])).rows[0];
-  if (!r || !seesApp(req.user!, appOf(r.repository))) return res.status(404).json({ error: 'NOT_FOUND' });
+  if (!r || !seesApp(req.user!, r.repository)) return res.status(404).json({ error: 'NOT_FOUND' });
   if (r.kind !== 'dispute' || r.status !== 'open') return res.status(400).json({ error: 'NOT_OPEN', message: 'Only an open dispute can be resolved' });
   await pool.query('UPDATE change_requests SET status = $2, resolved_by = $3, resolved_name = $4, resolved_at = now(), resolution = $5 WHERE id = $1',
     [r.id, outcome, req.user!.email, req.user!.name, note]);
@@ -237,4 +250,5 @@ ui.get('/platform', requirePerm('platform'), handle(async (_req, res) => {
 
 ui.use('/applications', applications);
 
+ui.use('/members', members);
 ui.get('/users', requirePerm('admin'), (_req, res) => res.json({ users: ACCOUNTS.map(publicAccount) }));

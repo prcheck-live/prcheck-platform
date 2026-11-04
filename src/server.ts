@@ -2,7 +2,7 @@ import express from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { access, requireUser, seesApp } from './auth';
+import { access, loadMembers, requireUser, seesApp } from './auth';
 import { config, repoByGithubName } from './config';
 import { pool } from './db';
 import { get } from './evidence-store';
@@ -57,7 +57,7 @@ function requireUserOrInternal(req: express.Request, res: express.Response, next
   return requireUser(req, res, () => (req.user && access(req.user).scope === 'none'
     ? res.status(403).json({ error: 'FORBIDDEN', message: 'Admins do not see change evidence' }) : next()));
 }
-const visible = (req: express.Request, repository: string) => !req.user || seesApp(req.user, config.repositories[repository]?.app ?? repository);
+const visible = (req: express.Request, repository: string) => !req.user || seesApp(req.user, repository);
 
 app.get('/api/assessments', requireUserOrInternal, async (req, res) => {
   const args: unknown[] = [];
@@ -112,7 +112,7 @@ app.use(express.static(join(__dirname, '..', 'public'), { index: false }));
 app.get(['/', '/assessments/:id'], (_req, res) => res.type('html').send(UI_HTML));
 
 if (require.main === module) {
-  migrate().then(loadApplications).then(() => {
+  migrate().then(loadApplications).then(loadMembers).then(() => {
     app.listen(config.server.port, () => console.log(`QIVVRA engine on ${config.server.public_url}`));
   }).catch((e) => { console.error(e); process.exit(1); });
 }

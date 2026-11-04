@@ -92,7 +92,7 @@ The UI is the approved QIVVRA prototype itself (`ui/prototype.html`), unchanged,
 
 Simulated-only prototype actions are not faked. Findings reach the producer as the PR comment, new commits arrive by webhook, and rules and exceptions change by pull request to the policy repository (the UI shows the exact exception file to propose).
 
-**Roles are enforced on the server** (`src/auth.ts`), with the same demo identities and password `Qivvra@2026`, code `246810`:
+**Roles are enforced on the server** (`src/auth.ts`). Members live in the `members` table; on first start the engine creates these demo members (password `Qivvra@2026`, code `246810`):
 
 | Account | Role | Can |
 |---|---|---|
@@ -105,7 +105,21 @@ Simulated-only prototype actions are not faked. Findings reach the producer as t
 | k.shah@qivvra.demo | Viewer | Read-only release readiness |
 | p.nair@qivvra.demo | Admin | Integrations, users, profiles; **no** change evidence |
 
-Replace `ACCOUNTS` with your identity provider (OIDC/SAML) for production. Set `QIVVRA_SESSION_SECRET` so sessions survive restarts.
+Set `QIVVRA_SESSION_SECRET` so sessions survive restarts.
+
+### Members (Platform Admin)
+
+**Integrations → Members** lists everyone who uses QIVVRA, with search and filters by role and application. The Admin can **add**, **edit** and **deactivate / reactivate** members. Each member has:
+
+| Setting | Meaning |
+|---|---|
+| Name, work email, designation | Who they are; the email can't change |
+| Role | Assurance Lead, Contributor, Viewer or Platform Admin: what they can do |
+| Authority (optional) | Finance, Security, Compliance, Platform: which rules they own |
+| Applications | The applications they work on, or **all applications** (including ones onboarded later) |
+| Initial password | Demo sign-in only; production uses the identity provider (SSO) |
+
+After signing in, every member sees **one card per application** on Home (changes, NOT READY / READY counts), and only those applications' changes anywhere in QIVVRA. The engine enforces it on every request: removing an application hides its changes on the member's next request, and deactivating a member ends their session at once. Rules: a Platform Admin has no applications or authority (sees no change evidence); the Admin can't deactivate themselves or remove their own Admin role; there's always at least one active Admin. Every change is written to `platform_audit`.
 
 ## Onboarding an application (Admin)
 
@@ -157,6 +171,9 @@ Every request and answer is also written to the assessment's timeline. The Contr
 | POST | `/api/ui/assessments/:id/findings/:obligation/dispute` | Contributor: "the check is wrong", with a reason |
 | POST | `/api/ui/requests/:id/resolve` | Assurance Lead answers a dispute: `upheld` or `check_changed` |
 | GET | `/api/ui/platform`, `/api/ui/users` | Admin and Assurance Lead; users for Admin only |
+| GET, POST | `/api/ui/members` | List or add members (Admin) |
+| PUT | `/api/ui/members/:email` | Change role, authority, applications, or reset the password (Admin) |
+| POST | `/api/ui/members/:email/status` | `active` or `disabled` (Admin) |
 | GET | `/api/ui/applications` | Every application and where it is defined (Admin, Assurance Lead) |
 | POST | `/api/ui/applications/test` | Test one onboarding step: `{ step, draft }` (Admin) |
 | POST, PUT | `/api/ui/applications`, `/api/ui/applications/:key` | Create or update; every step re-tested, 422 with results if any fails (Admin) |
@@ -176,6 +193,7 @@ Every request and answer is also written to the assessment's timeline. The Contr
 - `webhook_deliveries`: makes redeliveries idempotent.
 - `applications`: applications onboarded in the UI, with their credentials encrypted.
 - `platform_audit`: who changed the platform's configuration.
+- `members`: who uses QIVVRA, their role, authorities and applications.
 - `change_requests`: re-run requests, acknowledgements and disputes, and the Lead's answers.
 
 ## Known limits of this MVP build
@@ -184,8 +202,7 @@ Every request and answer is also written to the assessment's timeline. The Contr
 - The Xray Cloud adapter is implemented but has not yet been run against a live Xray instance; the demo uses JUnit files. The GitHub-dispatched verifier run is a documented interface only.
 - `/version` reports a 7-character commit, so the engine compares the short SHA.
 - The Jira fixtures hold VP-184 as it is today (5 acceptance criteria), so the assessments of commits 1 and 2 also show 5. In real Jira, the frozen context captures the story as it was at assessment time.
-- Sign-in uses demo identities; connect an identity provider for production.
-- A Contributor's scope is still the VendorPay application; per-application team membership comes with the identity provider.
+- Sign-in uses a password per member plus a demo verification code; connect an identity provider (OIDC/SAML) for production. There is no self-service password change yet.
 - Onboarding shows the GitHub webhook and required check to set; the GitHub App would set them automatically. The verifiers run on the engine host (`local-playwright`).
 - Simulated prototype workflows (routing missing intent, approving exceptions in-app) are replaced by their real GitHub equivalents, not by new UI.
 

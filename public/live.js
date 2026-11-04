@@ -11,7 +11,7 @@
  */
 'use strict';
 
-const LIVE = { changes: [], byId: {}, rev: {}, caseRev: {}, platform: null, apps: null, appSel: null, users: null, sig: '', timer: null, deep: null, runPoll: null, wiz: null };
+const LIVE = { access: null, members: null, memberApps: null, changes: [], byId: {}, rev: {}, caseRev: {}, platform: null, apps: null, appSel: null, users: null, sig: '', timer: null, deep: null, runPoll: null, wiz: null };
 
 /* Repository names as people say them: "vendorpay-policies", not a URL or a path. */
 const repoLabel = s => String(s || '').replace(/\.git$/, '').replace(/\/+$/, '').split(/[\/:]/).filter(Boolean).pop() || '';
@@ -210,7 +210,7 @@ function runButton(vm) {
 
 function emptyChanges() {
   return `<div class="card" style="max-width:680px;margin:40px auto;text-align:center;padding:36px 32px"><h1 style="font-size:22px;margin:0 0 8px;color:var(--navy)">No pull requests assessed yet</h1>
-    <p class="muted" style="margin:0">QIVVRA starts an assessment when a pull request is opened or updated on an onboarded repository${access().scope !== 'all' ? ` in ${esc(access().scope)}` : ''}. It appears here within seconds.</p></div>`;
+    <p class="muted" style="margin:0">QIVVRA starts an assessment when a pull request is opened or updated on an onboarded repository${access().scope !== 'all' ? ` in ${esc([].concat(access().scope).join(', '))}` : ''}. It appears here within seconds.</p></div>`;
 }
 function render() {
   const r = route(), navR = NAV_FOR[r] || r;
@@ -441,7 +441,7 @@ function forYou() {
     vms.filter(v => v.disp.code === 'INDETERMINATE').forEach(v => items.push(fyItem('warn', '?', `${v.id} · INDETERMINATE`, v.disp.reason.slice(0, 160), 'Open gaps', fyLink('ind-' + v.id, openChange(v.id, 'gaps')), true)));
     ready.forEach(v => items.push(fyItem('ok', '✓', `${v.id} · ${DISP[v.disp.code].label} on ${v.rev.hash}`, `All ${v.obls.length} obligations supported. The PR's merge check is green.`, 'Open case', fyLink('case-' + v.id, openChange(v.id, 'case')))));
   } else if (ME.sysRole === 'Contributor' && !ME.auth.length) {
-    head = 'Your changes'; sub = `${access().scope} pull requests, and what QIVVRA found in them.`;
+    head = 'Your changes'; sub = `${[].concat(access().scope).join(', ')} pull requests, and what QIVVRA found in them.`;
     vms.forEach(v => (v.change.requests || []).filter(r => r.by.email === ME.email).slice(-5).forEach(r => {
       const st = reqState(v.change, r), [w] = REQ_STATE[st];
       const what = r.kind === 'rerun' ? `Your re-run request on ${r.headSha.slice(0, 7)}` : `Your ${r.kind === 'dispute' ? 'dispute of' : 'acknowledgement of'} ${r.obligationId}`;
@@ -471,7 +471,7 @@ function forYou() {
       const down = p.repos.filter(x => !x.environment.version), paused = p.repos.filter(x => x.status === 'paused');
       if (!p.repos.length) items.push(fyItem('bad', '+', 'No application onboarded yet', 'Add an application: connect its GitHub repository, Jira project, policy and verifier repositories, and QE environment.', 'Add application', 'add-app', true));
       else items.push(fyItem(down.length ? 'bad' : 'ok', down.length ? '!' : '✓', `${p.repos.length} application${p.repos.length === 1 ? '' : 's'} onboarded${paused.length ? ` · ${paused.length} paused` : ''} · ${down.length ? `QE not reachable for ${down.map(x => x.app).join(', ')}` : 'every QE environment reachable'}`, `${p.repos.map(x => x.app).join(', ')} · webhooks received: ${p.repos.reduce((n, x) => n + x.webhooks.count, 0)} · reporting via ${p.engine.reporting}`, 'Integrations', 'integrations', true));
-      items.push(fyItem('info', 'U', `${ACCOUNTS.length} users across 4 roles`, 'Demo identities. Connect your identity provider for production.', 'Users and roles', 'settings'));
+      items.push(fyItem('info', 'U', `${(LIVE.members || ACCOUNTS).filter(m => m.status !== 'disabled').length} active members`, 'Roles, authorities and applications are managed under Integrations → Members.', 'Members', 'settings'));
       items.push(fyItem('info', 'P', `${r ? r.policyRepo.policies.length : 0} policies · profile ${r && r.policyRepo.profile ? r.policyRepo.profile.id : '—'}`, `${r ? repoLabel(r.policySource) : '—'}@${r ? r.policyRepo.commit : '—'} · changes need CODEOWNERS approval.`, 'Profiles', 'profiles'));
     }
   }
@@ -519,6 +519,37 @@ function appsTable() {
       ${admin ? `<td><div class="btnrow" style="flex-wrap:nowrap">${a.origin === 'ui' ? `<button class="btn" data-action="app-edit" data-id="${esc(a.key)}">Edit</button><button class="btn" data-action="app-status" data-id="${esc(a.key)}">${a.status === 'paused' ? 'Resume' : 'Pause'}</button>` : '<span class="small muted">Edit qivvra.config.yaml</span>'}</div></td>` : ''}</tr>`).join('')}
     </tbody></table></div></div>`;
 }
+/* ---------- Members: managed through the engine ---------- */
+async function loadMembers() { const r = await api('/api/ui/members'); if (r.ok) { LIVE.members = r.data.members; LIVE.memberApps = r.data.applications.map(a => ({ key: a.key, name: a.name })); } }
+/* The applications the signed-in member works on, from the engine: one card each on Home. */
+function myApps() { return ((LIVE.access && LIVE.access.applications) || []).map(a => ({ key: a.key, name: a.name, github: a.github, status: a.status })); }
+async function saveMember(id) {
+  const v = readMemberForm(), creating = id === 'new';
+  const e = validateMember(v, creating, (LIVE.members || []).map(m => m.email));
+  if (Object.keys(e).length) return showMemberErrors(e);
+  const btn = $('[data-action="mem-save"]'); if (btn) btn.disabled = true;
+  const r = await api(creating ? '/api/ui/members' : `/api/ui/members/${encodeURIComponent(id)}`, { method: creating ? 'POST' : 'PUT', body: v });
+  if (btn) btn.disabled = false;
+  if (!r.ok) return showMemberErrors(r.data.errors, r.data.errors ? '' : (r.data.message || `Not saved (HTTP ${r.status}).`));
+  $('#drawer-root').innerHTML = '';
+  toast(creating ? `${v.name} added. They see ${v.sysRole === 'Admin' ? 'platform settings only' : v.allApps ? 'all applications' : v.apps.length + ' application' + (v.apps.length === 1 ? '' : 's')} after signing in.` : `${v.name} updated.`);
+  LIVE.members = null; LIVE.users = null; render();
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-action]'); if (!t) return;
+  const a = t.dataset.action, id = t.dataset.id;
+  const stop = () => { e.stopImmediatePropagation(); e.preventDefault(); };
+  switch (a) {
+    case 'mem-add': stop(); openDrawer('Add member', 'Role, authority and applications', memberForm(null, LIVE.memberApps || [])); break;
+    case 'mem-edit': stop(); { const m = (LIVE.members || []).find(x => x.email === id); openDrawer(`Edit ${m.name}`, esc(m.email), memberForm(m, LIVE.memberApps || [])); } break;
+    case 'mem-save': stop(); saveMember(id); break;
+    case 'mem-status': stop(); { const m = (LIVE.members || []).find(x => x.email === id); const next = m.status === 'disabled' ? 'active' : 'disabled';
+      api(`/api/ui/members/${encodeURIComponent(id)}/status`, { method: 'POST', body: { status: next } }).then(r => {
+        toast(r.ok ? (next === 'disabled' ? `${m.name} deactivated: they can no longer sign in.` : `${m.name} reactivated.`) : (r.data.message || 'Not changed.'));
+        LIVE.members = null; LIVE.users = null; render(); }); } break;
+  }
+}, true);
+
 async function loadApps() { const r = await api('/api/ui/applications'); if (r.ok) LIVE.apps = r.data.applications; }
 function viewIntegrations() {
   if (!LIVE.platform || !LIVE.apps) { Promise.all([LIVE.platform ? null : loadPlatform(), LIVE.apps ? null : loadApps()]).then(() => { if (route() === 'integrations' && LIVE.platform && LIVE.apps) render(); }); return `<div class="ph"><div><h1>Integrations</h1><p class="sub">Loading live status…</p></div></div>`; }
@@ -530,7 +561,8 @@ function viewIntegrations() {
   const err = M['QE environment'].status === 'Error' ? `<div class="notice red"><span><b>${esc(r.app)}: QE environment not reachable.</b> New assessments cannot verify until it reports the PR's commit at /version.</span></div>` : '';
   const paused = r.status === 'paused' ? `<div class="notice amber"><span><b>${esc(r.app)} is paused.</b> Pull request webhooks are acknowledged and ignored until an Admin resumes it.</span></div>` : '';
   const picker = LIVE.platform.repos.length > 1 ? `<div class="btnrow" role="group" aria-label="Application" style="margin:0 0 14px"><span class="small muted">Showing</span>${LIVE.platform.repos.map(x => `<button class="btn${x.key === r.key ? ' navy' : ''}" data-action="app-sel" data-id="${esc(x.key)}" aria-pressed="${x.key === r.key}">${esc(x.app)}</button>`).join('')}</div>` : '';
-  return `${head}${appsTable()}${picker}${err}${paused}
+  const mem = admin ? (LIVE.members ? membersSection(LIVE.members, LIVE.memberApps) : (loadMembers().then(() => { if (route() === 'integrations') render(); }), '')) : '';
+  return `${head}${appsTable()}${mem}${picker}${err}${paused}
     <div class="integ">${groups.map(g => `<section class="col" aria-label="${g}"><h2>${g}</h2>${Object.entries(M).filter(([, x]) => x.group === g).map(([n, x]) => `<button class="itile" data-action="integ" data-id="${esc(n)}"><span class="ic">${x.ic}</span><span><b>${esc(n)}</b><small class="s-${x.status}">${x.status}</small></span></button>`).join('')}</section>`).join('')}</div>`;
 }
 function integDetail(name) {
@@ -652,7 +684,7 @@ document.addEventListener('click', e => {
     case 'route': case 'decide': case 'return-finding': case 'import-rev': case 'revoke': case 'exc-approve': case 'exc-reject':
       stop(); toast('In the live product this happens on GitHub: findings go to the PR automatically, new commits arrive by webhook, and rules and exceptions change by pull request to the policy repository.'); break;
     case 'flow': case 'reset-arm': case 'reset-do': case 'reset-cancel': stop(); break;
-    case 'signout': stop(); api('/api/ui/logout', { method: 'POST', allow401: true }).then(() => { stopPolling(); LIVE.platform = null; LIVE.users = null; $('#acct-pop').hidden = true; $('#drawer-root').innerHTML = ''; showLogin({ t: 'info', m: 'You have signed out.' }); }); break;
+    case 'signout': stop(); api('/api/ui/logout', { method: 'POST', allow401: true }).then(() => { stopPolling(); LIVE.platform = null; LIVE.users = null; LIVE.members = null; LIVE.access = null; $('#acct-pop').hidden = true; $('#drawer-root').innerHTML = ''; showLogin({ t: 'info', m: 'You have signed out.' }); }); break;
   }
 }, true);
 document.addEventListener('change', e => {
@@ -691,10 +723,11 @@ async function submitCode() {
     document.querySelectorAll('#otp input').forEach(i => i.value = ''); $('#otp input').focus(); return;
   }
   pending = null;
-  await enterLive(r.data.account, true);
+  await enterLive(r.data.account, true, r.data.access);
 }
-async function enterLive(account, fresh) {
-  ME = ACCOUNTS.find(a => a.email === account.email) || account;
+async function enterLive(account, fresh, acc) {
+  ME = { ...(ACCOUNTS.find(a => a.email === account.email) || {}), ...account };
+  LIVE.access = acc || null;
   $('#login').hidden = true; document.querySelector('.app').hidden = false;
   setUserChrome();
   LIVE.sig = ''; await loadLive();
@@ -958,6 +991,7 @@ if (!ACCOUNTS.some(a => a.email === 'v.bose@qivvra.demo')) ACCOUNTS.splice(ACCOU
   { email: 'a.pillai@qivvra.demo', short: 'A. Pillai', name: 'Arjun Pillai', role: 'Platform Engineering Lead', tagRole: 'Platform Lead', sysRole: 'Contributor', auth: ['Platform'], initials: 'AP', job: 'Owns build, deploy and environment rules' });
 /* Authority holders review their area's rules on every application, so they are not scoped to one. */
 function access(a) {
+  if ((!a || (ME && a.email === ME.email)) && LIVE.access) return LIVE.access;
   a = a || ME;
   if (a.sysRole === 'Admin') return { routes: ['home', 'integrations', 'onboard', 'profiles', 'org-settings'], scope: 'none' };
   if (a.sysRole === 'Assurance Lead') return { routes: ['home', ...ALL_CHANGE, 'integrations', 'profiles', 'org-settings'], scope: 'all' };
@@ -980,6 +1014,6 @@ function homeLabel(a) {
   const deep = location.pathname.match(/^\/assessments\/([^/]+)/);
   LIVE.deep = deep ? decodeURIComponent(deep[1]) : null;
   const r = await api('/api/ui/me', { allow401: true });
-  if (r.ok) await enterLive(r.data.account, false);
+  if (r.ok) await enterLive(r.data.account, false, r.data.access);
   else showLogin(LIVE.deep ? { t: 'info', m: `Sign in to open assessment ${LIVE.deep}.` } : null);
 })();
