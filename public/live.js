@@ -201,8 +201,11 @@ function staleBanner(vm) {
 function runButton(vm) {
   if (!vm.rev.isLatest) return `<button class="btn" disabled title="Assurance runs on the current revision">Run assurance</button>`;
   if (vm.inProgress || (S.running && !S.running.done)) return `<button class="btn" disabled>Assessment running…</button>`;
-  if (!can('run') && ME.sysRole === 'Contributor') return `<button class="btn" data-action="request-rerun">Request re-run</button>`;
-  return gate(can('run'), `<button class="btn primary" data-action="run">Re-run assurance</button>`, NEEDS.run);
+  const asked = openReqs(vm.change).find(r => r.kind === 'rerun' && r.headSha.startsWith(vm.rev.hash));
+  if (!can('run') && ME.sysRole === 'Contributor') return asked
+    ? `<button class="btn" disabled title="Waiting for the Assurance Lead">Re-run requested${asked.by.email === ME.email ? ' by you' : ` by ${esc(asked.by.name)}`}</button>`
+    : `<button class="btn" data-action="request-rerun">Request re-run</button>`;
+  return gate(can('run'), `<button class="btn primary" data-action="run">Re-run assurance${asked ? ` <span style="font-weight:500;opacity:.85">· requested by ${esc(asked.by.name)}</span>` : ''}</button>`, NEEDS.run);
 }
 
 function emptyChanges() {
@@ -262,6 +265,59 @@ function viewRevisions() {
 }
 
 /* ---------- Gaps (real actions only) ---------- */
+/* ---------- Contributor requests: re-run, acknowledge, dispute ---------- */
+const REQ_WORD = { rerun: 'Re-run requested', acknowledge: 'Acknowledged', dispute: 'Disputed' };
+/** open, or what became of it: done (Lead re-ran), upheld / check_changed (dispute answered), superseded (a newer commit), fixed (supported on a newer commit) */
+function reqState(ch, r) {
+  if (r.status !== 'open') return r.status;
+  const revs = revisionsOf(ch), latest = revs[revs.length - 1];
+  if (!latest || latest.sha === r.headSha) return 'open';
+  if (r.kind === 'rerun') return 'superseded';
+  const now = (latest.latest.obligations || []).find(x => x.obligation_id === r.obligationId);
+  return now && now.state === 'SUPPORTED' ? 'fixed' : 'superseded';
+}
+const openReqs = ch => ((ch && ch.requests) || []).filter(r => reqState(ch, r) === 'open');
+const REQ_STATE = { open: ['Open', 's-Requires'], done: ['Done', 's-Connected'], upheld: ['Finding stands', 's-Error'], check_changed: ['Check will be corrected', 's-Connected'], superseded: ['Superseded by a newer commit', 's-Available'], fixed: ['Fixed in a newer commit', 's-Connected'] };
+function reqList(list, ch) {
+  if (!list.length) return '';
+  return `<div class="reqs" style="margin:10px 0 12px;display:flex;flex-direction:column;gap:6px">${list.map(r => { const [w, cls] = REQ_STATE[reqState(ch, r)];
+    return `<div class="small" style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface-2)"><b>${REQ_WORD[r.kind]}</b> by ${esc(r.by.name)} · ${esc(ago(r.at))} · <span class="${cls}">${w}</span>
+      ${r.note ? `<div style="margin-top:3px">${esc(r.note)}</div>` : ''}${r.eta ? `<div class="muted">Fix expected ${esc(r.eta)}</div>` : ''}
+      ${r.resolved ? `<div class="muted" style="margin-top:3px">${esc(r.resolved.name)} · ${esc(ago(r.resolved.at))}${r.resolved.note ? ': ' + esc(r.resolved.note) : ''}</div>` : ''}</div>`; }).join('')}</div>`;
+}
+function reqDrawer(kind, id) {
+  const vm = curVM(), today = new Date().toISOString().slice(0, 10);
+  const note = (label, ph, req) => `<div class="field"><label for="rq-note">${label}${req ? '' : ' <span class="muted">(optional)</span>'}</label><textarea id="rq-note" placeholder="${ph}"></textarea><span class="err" id="rq-err"></span></div>`;
+  const head = `<p class="small muted" style="margin:0">${kind === 'rerun' ? `Revision <span class="mono">${esc(vm.rev.hash)}</span>` : `<b>${esc(id)}</b> on revision <span class="mono">${esc(vm.rev.hash)}</span>`} · ${esc(vm.id)}</p>`;
+  if (kind === 'rerun') return ['Request a re-run', head + note('Why should it run again?', 'For example: QE was down during the last run', false)
+    + '<p class="small muted" style="margin:0">The Assurance Lead sees this on their queue. It is closed when they re-run this revision, or when you push a new commit.</p><div class="btnrow"><button class="btn primary" data-action="req-send" data-id="rerun">Send request</button></div>'];
+  if (kind === 'ack') return ['Acknowledge finding', head + note('What is being done about it?', 'For example: fix in progress, holds scheduled payments on approval', true)
+    + `<div class="field"><label for="rq-eta">Fix expected <span class="muted">(optional)</span></label><input id="rq-eta" type="date" min="${today}"></div>
+      <p class="small muted" style="margin:0">This does not change the verdict. It tells the Assurance Lead and the rule owner the finding is being handled.</p><div class="btnrow"><button class="btn primary" data-action="req-send" data-id="ack:${esc(id)}">Acknowledge</button></div>`];
+  if (kind === 'dispute') return ['Dispute the check', head + note('Why do you think the check is wrong?', 'What the check expects, and why the application is right', true)
+    + '<p class="small muted" style="margin:0">The verdict stands while the Assurance Lead reviews the verifier. If the check is wrong, it is corrected in the verifiers repository and the change is assessed again.</p><div class="btnrow"><button class="btn primary" data-action="req-send" data-id="dispute:' + esc(id) + '">Send dispute</button></div>'];
+  const r = (vm.change.requests || []).find(x => String(x.id) === String(id));
+  return ['Resolve dispute', `<p class="small muted" style="margin:0"><b>${esc(r.obligationId)}</b> · disputed by ${esc(r.by.name)}</p><div class="trace" style="margin:0"><div class="rows" style="display:block;white-space:pre-wrap">${esc(r.note)}</div></div>
+    <fieldset class="field" style="border:0;padding:0;margin:0"><legend style="font-size:12.5px;font-weight:600;margin-bottom:6px">Decision</legend>
+      <label class="small" style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px"><input type="radio" name="rq-out" value="upheld" checked> <span><b>The finding stands.</b> The check is right; the change must be fixed.</span></label>
+      <label class="small" style="display:flex;gap:8px;align-items:flex-start"><input type="radio" name="rq-out" value="check_changed"> <span><b>The check will be corrected</b> in the verifiers repository, by pull request. Re-run after it merges.</span></label></fieldset>
+    ${note('Explain the decision', 'What you checked and why', true)}<div class="btnrow"><button class="btn primary" data-action="req-send" data-id="resolve:${r.id}">Save decision</button></div>`];
+}
+async function reqSend(what) {
+  const vm = curVM(), a = vm.assessment, val = sel => { const el = $(sel); return el ? el.value.trim() : ''; };
+  const [kind, arg] = what.split(':');
+  const note = val('#rq-note'), err = m => { const e = $('#rq-err'); if (e) e.textContent = m; };
+  let r;
+  if (kind === 'rerun') r = await api(`/api/ui/assessments/${encodeURIComponent(a.id)}/request-rerun`, { method: 'POST', body: { note } });
+  else if (kind === 'ack') { if (!note) return err('Say what is being done about it.'); r = await api(`/api/ui/assessments/${encodeURIComponent(a.id)}/findings/${encodeURIComponent(arg)}/acknowledge`, { method: 'POST', body: { note, eta: val('#rq-eta') } }); }
+  else if (kind === 'dispute') { if (note.length < 15) return err('Explain why the check is wrong (at least 15 characters).'); r = await api(`/api/ui/assessments/${encodeURIComponent(a.id)}/findings/${encodeURIComponent(arg)}/dispute`, { method: 'POST', body: { reason: note } }); }
+  else { if (note.length < 5) return err('Explain the decision.'); const out = (document.querySelector('input[name="rq-out"]:checked') || {}).value; r = await api(`/api/ui/requests/${encodeURIComponent(arg)}/resolve`, { method: 'POST', body: { outcome: out, note } }); }
+  if (!r.ok) return err(r.data.message || `Not saved (HTTP ${r.status}).`);
+  $('#drawer-root').innerHTML = '';
+  toast({ rerun: 'Re-run requested. The Assurance Lead sees it on their queue.', ack: 'Acknowledged. The Assurance Lead and the rule owner can see it.', dispute: 'Dispute sent. The verdict stands while the Assurance Lead reviews the check.', resolve: 'Decision saved and recorded in the change activity.' }[kind]);
+  await refresh(true);
+}
+
 function viewGaps() {
   const vm = curVM();
   const tones = { 'Violation': 't-red', 'Insufficient': 't-amber', 'Conflicted': 't-purple', 'Unknown impact': 't-neutral', 'Stale evidence': 't-stale' };
@@ -275,7 +331,17 @@ function viewGaps() {
       if (o.state === 'INSUFFICIENT' && !o.exception) actions += o.crit === 'Critical' ? '<span class="small muted">Critical obligations cannot be accepted as exceptions (profile rule).</span>'
         : gate(can('run'), `<button class="btn" data-action="exception" data-id="${esc(o.id)}">Propose exception…</button>`, NEEDS.run);
       if (o.state === 'VIOLATED') actions += '<span class="small muted">Violations cannot be waived by an exception (profile rule).</span>';
+      if (vm.rev.isLatest && o.state !== 'SUPPORTED') {
+        const mine = (vm.change.requests || []).filter(r => r.obligationId === o.id && r.headSha.startsWith(vm.rev.hash));
+        const ack = mine.find(r => r.kind === 'acknowledge' && r.status === 'open'), dis = mine.find(r => r.kind === 'dispute' && r.status === 'open');
+        if (ME.sysRole === 'Contributor') {
+          actions += `<button class="btn" data-action="req-ack" data-id="${esc(o.id)}">${ack ? 'Update acknowledgement…' : 'Acknowledge…'}</button>`;
+          actions += dis ? '' : `<button class="btn" data-action="req-dispute" data-id="${esc(o.id)}">Dispute the check…</button>`;
+        }
+        if (dis && can('run')) actions += `<button class="btn primary" data-action="req-resolve" data-id="${dis.id}">Resolve dispute…</button>`;
+      }
     }
+    const reqHtml = o ? reqList((vm.change.requests || []).filter(r => r.obligationId === o.id && r.headSha.startsWith(vm.rev.hash)), vm.change) : '';
     const owner = o && o.authority.owner ? `<div class="small muted" style="margin:-4px 0 12px">Rule ${esc(o.authority.id)} is owned by ${esc(o.authority.owner)}${ME.auth.some(x => o.authority.owner.toLowerCase().includes(x.toLowerCase())) ? ' · <b>you hold this authority</b>' : ''}. Changes to it need that owner's approval in vendorpay-policies (CODEOWNERS).</div>` : '';
     return `<article class="gap${g.blocking && !g.exception ? ' blocking' : ''}${g.blocking && !g.exception && g.type !== 'Violation' ? ' amberish' : ''}">
       <div class="t"><span class="badge ${tones[g.type]}">${g.type.toUpperCase()}</span>${g.sub ? `<div class="small muted" style="margin-top:6px">${esc(g.sub)}</div>` : ''}${g.severe ? '<div class="small" style="margin-top:6px;color:var(--red-text);font-weight:700">High severity</div>' : ''}</div>
@@ -287,6 +353,7 @@ function viewGaps() {
           ${g.exception ? `<dt>Exception</dt><dd>${esc(g.exception.reason)} · owner ${esc(g.exception.owner)} · scope ${esc(g.exception.scope)} · control: ${esc(g.exception.control)} · expires ${esc(g.exception.expiry)}</dd>` : ''}
         </dl>
         <div class="resolve"><b>What would resolve this?</b> ${esc(g.resolve)}</div>
+        ${reqHtml}
         ${owner}
         <div class="btnrow">${actions}</div></div></article>`;
   }).join('');
@@ -363,12 +430,24 @@ function forYou() {
   const vio = v => v.obls.filter(o => o.state === 'VIOLATED');
   runningV.forEach(v => items.push(fyItem('info', '…', `${v.id} · assessment running on ${v.rev.hash}`, `${STATUS_WORD[v.assessment.status] || v.assessment.status}. Results appear here when QIVVRA decides.`, 'Watch', fyLink('run-' + v.id, openChange(v.id, 'revisions')))));
   if (ME.sysRole === 'Assurance Lead') {
-    head = 'Your assurance queue'; sub = 'Changes QIVVRA blocked, and what blocks them.';
+    head = 'Your assurance queue'; sub = 'Requests from contributors, changes QIVVRA blocked, and what blocks them.';
+    vms.forEach(v => openReqs(v.change).forEach(r => {
+      const sha = r.headSha.slice(0, 7);
+      if (r.kind === 'rerun') items.push(fyItem('warn', '↻', `${v.id} · re-run requested on ${sha}`, `${r.by.name} · ${ago(r.at)}${r.note ? ` · "${r.note}"` : ''}`.slice(0, 200), 'Open revisions', fyLink('rq-' + r.id, openChange(v.id, 'revisions')), true));
+      if (r.kind === 'dispute') items.push(fyItem('warn', '?', `${v.id} · ${r.obligationId} check disputed`, `${r.by.name}: "${r.note}"`.slice(0, 200), 'Review', fyLink('rq-' + r.id, openChange(v.id, 'gaps')), true));
+      if (r.kind === 'acknowledge') items.push(fyItem('info', '✓', `${v.id} · ${r.obligationId} acknowledged`, `${r.by.name}: "${r.note}"${r.eta ? ` · fix expected ${r.eta}` : ''}`.slice(0, 200), 'Open gaps', fyLink('rq-' + r.id, openChange(v.id, 'gaps'))));
+    }));
     blocked.forEach(v => items.push(fyItem('bad', '!', `${v.id} · NOT READY on ${v.rev.hash}`, vio(v).map(o => `${o.id} ${o.title}`).join('; ').slice(0, 180), 'Open gaps', fyLink('gaps-' + v.id, openChange(v.id, 'gaps')), true)));
     vms.filter(v => v.disp.code === 'INDETERMINATE').forEach(v => items.push(fyItem('warn', '?', `${v.id} · INDETERMINATE`, v.disp.reason.slice(0, 160), 'Open gaps', fyLink('ind-' + v.id, openChange(v.id, 'gaps')), true)));
     ready.forEach(v => items.push(fyItem('ok', '✓', `${v.id} · ${DISP[v.disp.code].label} on ${v.rev.hash}`, `All ${v.obls.length} obligations supported. The PR's merge check is green.`, 'Open case', fyLink('case-' + v.id, openChange(v.id, 'case')))));
   } else if (ME.sysRole === 'Contributor' && !ME.auth.length) {
     head = 'Your changes'; sub = `${access().scope} pull requests, and what QIVVRA found in them.`;
+    vms.forEach(v => (v.change.requests || []).filter(r => r.by.email === ME.email).slice(-5).forEach(r => {
+      const st = reqState(v.change, r), [w] = REQ_STATE[st];
+      const what = r.kind === 'rerun' ? `Your re-run request on ${r.headSha.slice(0, 7)}` : `Your ${r.kind === 'dispute' ? 'dispute of' : 'acknowledgement of'} ${r.obligationId}`;
+      const detail = st === 'open' ? (r.kind === 'acknowledge' ? 'Visible to the Assurance Lead and the rule owner.' : 'Waiting for the Assurance Lead.') : `${w}${r.resolved ? ` · ${r.resolved.name}${r.resolved.note ? ': ' + r.resolved.note : ''}` : ''}`;
+      items.push(fyItem(st === 'upheld' ? 'bad' : st === 'open' ? 'info' : 'ok', st === 'open' ? '…' : '✓', `${v.id} · ${what}`, detail.slice(0, 200), 'Open', fyLink('my-' + r.id, openChange(v.id, r.kind === 'rerun' ? 'revisions' : 'gaps'))));
+    }));
     blocked.forEach(v => { const o = vio(v)[0]; items.push(fyItem('bad', '!', `${v.id} is blocked: ${o ? o.title.toLowerCase() : 'policy violated'}`, o ? `${o.id} (${o.authority.id}) violated on ${v.rev.hash}. ${o.exec ? 'Observed: ' + o.exec.observed : ''}`.slice(0, 200) : v.disp.reason, 'See the evidence', fyLink('ev-' + v.id, openChange(v.id, 'evidence', o && o.id)), true)); });
     ready.forEach(v => items.push(fyItem('ok', '✓', `${v.id} is ${DISP[v.disp.code].label}`, `Revision ${v.rev.hash} passed every obligation. You can merge.`, 'Open case', fyLink('case-' + v.id, openChange(v.id, 'case')))));
   } else if (ME.auth.length) {
@@ -560,7 +639,11 @@ document.addEventListener('click', e => {
   const stop = () => { e.stopImmediatePropagation(); e.preventDefault(); };
   switch (a) {
     case 'run': stop(); if (!can('run')) { toast('Running assurance needs the Assurance Lead role.'); break; } startRun(); break;
-    case 'request-rerun': stop(); { const vm = curVM(); api(`/api/ui/assessments/${encodeURIComponent(vm.assessment.id)}/request-rerun`, { method: 'POST' }).then(r => { toast(r.ok ? 'Re-run requested. It shows in the change activity for the Assurance Lead.' : (r.data.message || 'Request failed.')); refresh(true); }); } break;
+    case 'request-rerun': stop(); { const [t, h] = reqDrawer('rerun'); openDrawer(t, '', h); } break;
+    case 'req-ack': stop(); { const [t, h] = reqDrawer('ack', id); openDrawer(t, '', h); } break;
+    case 'req-dispute': stop(); { const [t, h] = reqDrawer('dispute', id); openDrawer(t, '', h); } break;
+    case 'req-resolve': stop(); { const [t, h] = reqDrawer('resolve', id); openDrawer(t, '', h); } break;
+    case 'req-send': stop(); reqSend(id); break;
     case 'view-rev': stop(); LIVE.rev[S.changeId] = id; LIVE.caseRev[S.changeId] = id; render(); break;
     case 'case-rev': stop(); LIVE.caseRev[S.changeId] = id; render(); break;
     case 'exception': stop(); { const vm = curVM(); const o = vm.obls.find(x => x.id === id); openDrawer('Propose exception', `${esc(o.id)} · through the policy repository`, exceptionDrawer(o, vm)); } break;

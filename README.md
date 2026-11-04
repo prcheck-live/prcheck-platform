@@ -132,6 +132,18 @@ After saving, the application is live at once (no restart) and the screen shows 
 - The key must match the policy repository's catalog: the policy owners register an application there first, by pull request. QIVVRA does not let an Admin invent rules.
 - Assurance Leads can see the application list; only Admins can test, create, edit or pause. Contributors and Viewers get 403.
 
+## Contributor requests
+
+Contributors can't change a verdict, a rule or a check, but they can talk to the people who can:
+
+| Request | Where | Who sees it | Closed when |
+|---|---|---|---|
+| **Request re-run** | Revisions (or any change screen header) | Assurance Lead's queue; button shows "Re-run requested" | The Lead re-runs that revision, or a newer commit supersedes it |
+| **Acknowledge** a finding | Gaps, on a failed obligation | Lead's queue and the gap | The obligation is supported on a newer commit |
+| **Dispute** a check | Gaps, on a failed obligation | Lead's queue (needs an answer) | The Lead answers: *finding stands*, or *check will be corrected* (by PR to the verifiers repo) |
+
+Every request and answer is also written to the assessment's timeline. The Contributor's home shows the state of their own requests.
+
 ## API
 
 | Method | Path | |
@@ -140,7 +152,10 @@ After saving, the application is live at once (no restart) and the screen shows 
 | POST | `/api/ui/login/password`, `/api/ui/login`, `/api/ui/logout` | Sign-in (password, then code) |
 | GET | `/api/ui/me`, `/api/ui/changes` | Current user and access; changes visible to that user |
 | POST | `/api/ui/assessments/:id/rerun` | Assurance Lead only |
-| POST | `/api/ui/assessments/:id/request-rerun` | Contributor only |
+| POST | `/api/ui/assessments/:id/request-rerun` | Contributor only; one open request per revision (409 otherwise) |
+| POST | `/api/ui/assessments/:id/findings/:obligation/acknowledge` | Contributor: "seen, fix in progress", with an optional fix date |
+| POST | `/api/ui/assessments/:id/findings/:obligation/dispute` | Contributor: "the check is wrong", with a reason |
+| POST | `/api/ui/requests/:id/resolve` | Assurance Lead answers a dispute: `upheld` or `check_changed` |
 | GET | `/api/ui/platform`, `/api/ui/users` | Admin and Assurance Lead; users for Admin only |
 | GET | `/api/ui/applications` | Every application and where it is defined (Admin, Assurance Lead) |
 | POST | `/api/ui/applications/test` | Test one onboarding step: `{ step, draft }` (Admin) |
@@ -161,6 +176,7 @@ After saving, the application is live at once (no restart) and the screen shows 
 - `webhook_deliveries`: makes redeliveries idempotent.
 - `applications`: applications onboarded in the UI, with their credentials encrypted.
 - `platform_audit`: who changed the platform's configuration.
+- `change_requests`: re-run requests, acknowledgements and disputes, and the Lead's answers.
 
 ## Known limits of this MVP build
 

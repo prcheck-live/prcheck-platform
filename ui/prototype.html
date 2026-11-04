@@ -770,7 +770,7 @@ function initState(fresh=true){
     graphObl:null, caseRev:null, profileSel:'vp', resetArm:false, showProducer:true,
     faults:{logSink:false,policyEngine:false,integrity:false}, running:null,
     others:{},
-    apps: pwSeedApps(), platformAudit: [], wiz: null,
+    apps: pwSeedApps(), platformAudit: [], wiz: null, reqs: [], reqSeq: 1,
     flow:{on:true, i:0, min:false, seen:{}},
     vp:{viewRev:'r1', runSeq: fresh ? 2082 : 2104, excSeq:31, returned:null,
       revs:{
@@ -1032,8 +1032,9 @@ function staleBanner(vm){
 function runButton(vm){
   const busy = S.running && !S.running.done;
   if(vm.live && !vm.rev.isLatest) return `<button class="btn" disabled title="Assurance runs on the current revision">Run assurance</button>`;
-  if(!can('run') && ME.sysRole==='Contributor') return `<button class="btn" data-action="request-rerun">Request re-run</button>`;
-  return gate(can('run'), `<button class="btn primary" data-action="run" ${busy?'disabled':''}>${busy?'Assurance running…':(vm.assessed?'Re-run assurance':'Run assurance')}</button>`, NEEDS.run);
+  const asked = pReqOpen(vm).find(r=>r.kind==='rerun');
+  if(!can('run') && ME.sysRole==='Contributor') return asked ? `<button class="btn" disabled title="Waiting for the Assurance Lead">Re-run requested${asked.email===ME.email?' by you':' by '+esc(asked.name)}</button>` : `<button class="btn" data-action="request-rerun">Request re-run</button>`;
+  return gate(can('run'), `<button class="btn primary" data-action="run" ${busy?'disabled':''}>${busy?'Assurance running…':(vm.assessed?'Re-run assurance':'Run assurance')}${asked&&!busy?` <span style="font-weight:500;opacity:.85">· requested by ${esc(asked.name)}</span>`:''}</button>`, NEEDS.run);
 }
 
 /* ---------- Command Center ---------- */
@@ -1266,6 +1267,82 @@ function drilldown(o, vm){
 }
 
 /* ---------- Gaps & uncertainty ---------- */
+/* ---------- Contributor requests: re-run, acknowledge, dispute (the Lead answers) ---------- */
+const PREQ_WORD = {rerun:'Re-run requested', acknowledge:'Acknowledged', dispute:'Disputed'};
+const PREQ_STATE = {open:['Open','s-Requires'], done:['Done','s-Connected'], upheld:['Finding stands','s-Error'], check_changed:['Check will be corrected','s-Connected']};
+const pReqOpen = vm => S.reqs.filter(r=>r.change===vm.id && r.hash===vm.rev.hash && r.status==='open');
+const pReqFor = (vm, obl) => S.reqs.filter(r=>r.change===vm.id && r.hash===vm.rev.hash && r.obl===obl);
+function pReqList(list){
+  if(!list.length) return '';
+  return `<div class="reqs" style="margin:10px 0 12px;display:flex;flex-direction:column;gap:6px">${list.map(r=>{ const [w,cls] = PREQ_STATE[r.status];
+    return `<div class="small" style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface-2)"><b>${PREQ_WORD[r.kind]}</b> by ${esc(r.name)} · ${esc(r.at)} · <span class="${cls}">${w}</span>
+      ${r.note?`<div style="margin-top:3px">${esc(r.note)}</div>`:''}${r.eta?`<div class="muted">Fix expected ${esc(r.eta)}</div>`:''}
+      ${r.resolved?`<div class="muted" style="margin-top:3px">${esc(r.resolved.name)} · ${esc(r.resolved.at)}${r.resolved.note?': '+esc(r.resolved.note):''}</div>`:''}</div>`; }).join('')}</div>`;
+}
+function pReqDrawer(kind, id){
+  const vm = curVM(), today = new Date().toISOString().slice(0,10);
+  const note = (label, ph, req) => `<div class="field"><label for="rq-note">${label}${req?'':' <span class="muted">(optional)</span>'}</label><textarea id="rq-note" placeholder="${ph}"></textarea><span class="err" id="rq-err"></span></div>`;
+  const head = `<p class="small muted" style="margin:0">${kind==='rerun'?`Revision <span class="mono">${esc(vm.rev.hash)}</span>`:`<b>${esc(id)}</b> on revision <span class="mono">${esc(vm.rev.hash)}</span>`} · ${esc(vm.id)}</p>`;
+  if(kind==='rerun') return ['Request a re-run', head + note('Why should it run again?','For example: QE was down during the last run',false)
+    + '<p class="small muted" style="margin:0">The Assurance Lead sees this on their queue. It is closed when they re-run this revision, or when you push a new commit.</p><div class="btnrow"><button class="btn primary" data-action="req-send" data-id="rerun">Send request</button></div>'];
+  if(kind==='ack') return ['Acknowledge finding', head + note('What is being done about it?','For example: fix in progress, blocks self-approval server-side',true)
+    + `<div class="field"><label for="rq-eta">Fix expected <span class="muted">(optional)</span></label><input id="rq-eta" type="date" min="${today}"></div><p class="small muted" style="margin:0">This does not change the verdict. It tells the Assurance Lead and the rule owner the finding is being handled.</p><div class="btnrow"><button class="btn primary" data-action="req-send" data-id="ack:${esc(id)}">Acknowledge</button></div>`];
+  if(kind==='dispute') return ['Dispute the check', head + note('Why do you think the check is wrong?','What the check expects, and why the application is right',true)
+    + `<p class="small muted" style="margin:0">The verdict stands while the Assurance Lead reviews the verifier. If the check is wrong, it is corrected in the verifiers repository and the change is assessed again.</p><div class="btnrow"><button class="btn primary" data-action="req-send" data-id="dispute:${esc(id)}">Send dispute</button></div>`];
+  const r = S.reqs.find(x=>String(x.id)===String(id));
+  return ['Resolve dispute', `<p class="small muted" style="margin:0"><b>${esc(r.obl)}</b> · disputed by ${esc(r.name)}</p><div class="trace" style="margin:0"><div class="rows" style="display:block;white-space:pre-wrap">${esc(r.note)}</div></div>
+    <fieldset class="field" style="border:0;padding:0;margin:0"><legend style="font-size:12.5px;font-weight:600;margin-bottom:6px">Decision</legend>
+      <label class="small" style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px"><input type="radio" name="rq-out" value="upheld" checked> <span><b>The finding stands.</b> The check is right; the change must be fixed.</span></label>
+      <label class="small" style="display:flex;gap:8px;align-items:flex-start"><input type="radio" name="rq-out" value="check_changed"> <span><b>The check will be corrected</b> in the verifiers repository, by pull request. Re-run after it merges.</span></label></fieldset>
+    ${note('Explain the decision','What you checked and why',true)}<div class="btnrow"><button class="btn primary" data-action="req-send" data-id="resolve:${r.id}">Save decision</button></div>`];
+}
+function pReqSend(what){
+  const vm = curVM(), [kind, arg] = what.split(':'), noteEl = $('#rq-note'), note = noteEl ? noteEl.value.trim() : '';
+  const err = m => { const e = $('#rq-err'); if(e) e.textContent = m; };
+  const base = {change:vm.id, rev:vm.rev.key, hash:vm.rev.hash, name:ME.name, email:ME.email, at:fmt(new Date()), status:'open'};
+  if(kind==='rerun'){ S.reqs.push({...base, id:S.reqSeq++, kind:'rerun', note}); addLog(meLabel(), `Requested a re-run of assurance on ${vm.id} ${vm.rev.hash}${note?': '+note:''}.`); }
+  else if(kind==='ack'){
+    if(!note) return err('Say what is being done about it.');
+    const eta = ($('#rq-eta')||{}).value || '';
+    const old = S.reqs.find(r=>r.kind==='acknowledge'&&r.status==='open'&&r.change===vm.id&&r.hash===vm.rev.hash&&r.obl===arg);
+    if(old) Object.assign(old, {note, eta, name:ME.name, email:ME.email, at:base.at}); else S.reqs.push({...base, id:S.reqSeq++, kind:'acknowledge', obl:arg, note, eta});
+    addLog(meLabel(), `Acknowledged ${arg}: ${note}${eta?' (fix expected '+eta+')':''}.`);
+  } else if(kind==='dispute'){
+    if(note.length<15) return err('Explain why the check is wrong (at least 15 characters).');
+    S.reqs.push({...base, id:S.reqSeq++, kind:'dispute', obl:arg, note}); addLog(meLabel(), `Disputed the check for ${arg}: ${note}`);
+  } else {
+    if(note.length<5) return err('Explain the decision.');
+    const r = S.reqs.find(x=>String(x.id)===arg), out = (document.querySelector('input[name="rq-out"]:checked')||{}).value || 'upheld';
+    r.status = out; r.resolved = {name:ME.name, at:fmt(new Date()), note};
+    addLog(meLabel(), `Answered the dispute on ${r.obl}: ${out==='upheld'?'the finding stands':'the check will be corrected'}. ${note}`);
+  }
+  closeDrawer();
+  toast({rerun:'Re-run requested. The Assurance Lead sees it on their queue.', ack:'Acknowledged. The Assurance Lead and the rule owner can see it.', dispute:'Dispute sent. The verdict stands while the Assurance Lead reviews the check.', resolve:'Decision saved and recorded in the change activity.'}[kind]);
+  render();
+}
+function pReqCloseReruns(vm){
+  pReqOpen(vm).filter(r=>r.kind==='rerun').forEach(r=>{ r.status='done'; r.resolved={name:ME.name, at:fmt(new Date()), note:'Re-run started'}; });
+}
+function pReqQueue(){
+  const out = [];
+  S.reqs.filter(r=>r.status==='open').forEach(r=>{
+    const go = `pq-${r.id}`; FY_GO[go] = ()=>{ setChange(r.change); go2(r.kind==='rerun'?'revisions':'gaps'); };
+    if(r.kind==='rerun') out.push(fyItem('warn','↻', `${r.change} · re-run requested on ${r.hash}`, `${r.name} · ${r.at}${r.note?' · "'+r.note+'"':''}`, 'Open revisions', go, true));
+    if(r.kind==='dispute') out.push(fyItem('warn','?', `${r.change} · ${r.obl} check disputed`, `${r.name}: "${r.note}"`, 'Review', go, true));
+    if(r.kind==='acknowledge') out.push(fyItem('info','✓', `${r.change} · ${r.obl} acknowledged`, `${r.name}: "${r.note}"${r.eta?' · fix expected '+r.eta:''}`, 'Open gaps', go));
+  });
+  return out;
+}
+function pReqMine(){
+  return S.reqs.filter(r=>r.email===ME.email).slice(-5).map(r=>{
+    const go = `pm-${r.id}`; FY_GO[go] = ()=>{ setChange(r.change); go2(r.kind==='rerun'?'revisions':'gaps'); };
+    const [w] = PREQ_STATE[r.status], what = r.kind==='rerun' ? `Your re-run request on ${r.hash}` : `Your ${r.kind==='dispute'?'dispute of':'acknowledgement of'} ${r.obl}`;
+    const detail = r.status==='open' ? (r.kind==='acknowledge'?'Visible to the Assurance Lead and the rule owner.':'Waiting for the Assurance Lead.') : `${w}${r.resolved?' · '+r.resolved.name+(r.resolved.note?': '+r.resolved.note:''):''}`;
+    return fyItem(r.status==='upheld'?'bad':r.status==='open'?'info':'ok', r.status==='open'?'…':'✓', `${r.change} · ${what}`, detail, 'Open', go);
+  });
+}
+const go2 = r => go(r);
+
 function viewGaps(){
   const vm = curVM();
   const tones = {'Violation':'t-red','Insufficient':'t-amber','Conflicted':'t-purple','Unknown impact':'t-neutral','Stale evidence':'t-stale'};
@@ -1289,7 +1366,16 @@ function viewGaps(){
         actions += o.crit==='Critical' ? `<span class="small muted">Critical obligations cannot be accepted as exceptions (profile rule).</span>` : (vm.live ? gate(can('proposeExc'), `<button class="btn" data-action="exception" data-id="${o.id}">Propose exception…</button>`, NEEDS.proposeExc) : '');
       }
       if(o.exception && vm.live) actions += gate(can('revoke'), `<button class="btn" data-action="revoke" data-id="${o.exception.id}">Revoke ${o.exception.id}</button>`, NEEDS.revoke);
+      if(vm.rev.isLatest !== false && ['VIOLATED','INSUFFICIENT','CONFLICTED','NOT ASSESSED'].includes(o.state)){
+        const mine = pReqFor(vm, o.id), ack = mine.find(r=>r.kind==='acknowledge'&&r.status==='open'), dis = mine.find(r=>r.kind==='dispute'&&r.status==='open');
+        if(ME.sysRole==='Contributor'){
+          actions += `<button class="btn" data-action="req-ack" data-id="${o.id}">${ack?'Update acknowledgement…':'Acknowledge…'}</button>`;
+          if(!dis) actions += `<button class="btn" data-action="req-dispute" data-id="${o.id}">Dispute the check…</button>`;
+        }
+        if(dis && can('run')) actions += `<button class="btn primary" data-action="req-resolve" data-id="${dis.id}">Resolve dispute…</button>`;
+      }
     }
+    const reqHtml = o ? pReqList(pReqFor(vm, o.id)) : '';
     const prov = (vm.live && o && o.id==='OBL-03') ? obl03Provenance() : '';
     return `<article class="gap${g.blocking && !g.exception?' blocking':''}${g.blocking && !g.exception && g.type!=='Violation'?' amberish':''}">
       <div class="t"><span class="badge ${tones[g.type]}">${g.type.toUpperCase()}</span>${g.sub?`<div class="small muted" style="margin-top:6px">${esc(g.sub)}</div>`:''}${g.severe?'<div class="small" style="margin-top:6px;color:var(--red-text);font-weight:700">High severity</div>':''}</div>
@@ -1303,6 +1389,7 @@ function viewGaps(){
           ${g.exception?`<dt>Exception</dt><dd>${esc(g.exception.reason)} · owner ${esc(g.exception.owner)} · scope ${esc(g.exception.scope)} · control: ${esc(g.exception.control)} · expires ${esc(g.exception.expiry)}</dd>`:''}
         </dl>
         <div class="resolve"><b>What would resolve this?</b> ${esc(g.resolve)}</div>
+        ${reqHtml}
         ${prov}
         <div class="btnrow">${actions}</div></div></article>`;
   }).join('');
@@ -2077,8 +2164,12 @@ document.addEventListener('click', e => {
     case 'ev-obl': S.selObl[S.changeId] = id; render(); break;
     case 'trace-obl': closeDrawer(); S.graphObl = id; go('graph'); break;
     case 'sort': S.oblSort = {key:id, dir: S.oblSort.key===id ? -S.oblSort.dir : 1}; render(); break;
-    case 'run': if(!can('run')) { toast('Running assurance needs the Assurance Lead role.'); break; } startRun(); break;
-    case 'request-rerun': { const v = curVM(); addLog(meLabel(), `Requested a re-run of assurance on ${v.id} ${v.rev.hash}.`); toast('Re-run requested. An Assurance Lead will run it.'); render(); } break;
+    case 'run': if(!can('run')) { toast('Running assurance needs the Assurance Lead role.'); break; } pReqCloseReruns(curVM()); startRun(); break;
+    case 'request-rerun': { const [t,h] = pReqDrawer('rerun'); openDrawer(t,'',h); } break;
+    case 'req-ack': { const [t,h] = pReqDrawer('ack', id); openDrawer(t,'',h); } break;
+    case 'req-dispute': { const [t,h] = pReqDrawer('dispute', id); openDrawer(t,'',h); } break;
+    case 'req-resolve': { const [t,h] = pReqDrawer('resolve', id); openDrawer(t,'',h); } break;
+    case 'req-send': pReqSend(id); break;
     case 'fy': if(FY_GO[id]) FY_GO[id](); break;
     case 'exc-approve': case 'exc-reject': { const x = S.vp.exceptions.find(q=>q.id===id); if(!x) break; if(!hasAuth(x.area) || x.by===ME.short){ toast(`Approving needs ${needAuth(x.area)}, and not the person who proposed it.`); break; }
       x.status = a==='exc-approve' ? 'accepted' : 'rejected'; x.approvedBy = ME.short; x.approvedAt = fmt(new Date());
@@ -2312,7 +2403,8 @@ function forYou(){
   const pendExc = st.exceptions.filter(e=>e.status==='proposed');
   let head = '', sub = '';
   if(ME.sysRole==='Assurance Lead'){
-    head = 'Your assurance queue'; sub = 'Changes that need you to run, route or chase something.';
+    head = 'Your assurance queue'; sub = 'Requests from contributors, and changes that need you to run, route or chase something.';
+    items.push(...pReqQueue());
     if(!v.assessed) items.push(fyItem('act','▶','VP-184 · run assurance on '+hash, 'Supplier bank-account change, Critical. No disposition yet.', 'Run assurance', 'vp-run', true));
     if(d==='NOT_READY' && !st.returned) items.push(fyItem('bad','!','VP-184 · return the OBL-02 finding', 'A requester can approve their own bank-account change. The producer needs the finding.', 'Open gaps', 'vp-gaps', true));
     if(st.returned && !r.r2.received) items.push(fyItem('act','↓','VP-184 · corrected revision c41d9e2 is waiting', 'The producer pushed a fix to PR #482. Import it to assess.', 'Open revisions', 'vp-revs', true));
@@ -2324,6 +2416,7 @@ function forYou(){
     items.push(fyItem('warn','?','IAM-078 · revocation evidence not obtained', 'Verifier unavailable for SEC-008. Disposition stays INDETERMINATE until it runs.', 'Open gaps', 'iam-gaps'));
   } else if(ME.sysRole==='Contributor' && !ME.auth.length){
     head = 'Your changes'; sub = 'VendorPay changes you lead, and what QIVVRA found in them.';
+    items.push(...pReqMine());
     if(!v.assessed) items.push(fyItem('info','…','VP-184 · waiting for assessment', 'Revision '+hash+' has not been assessed yet.', 'View change', 'vp-overview'));
     else if(d==='NOT_READY') items.push(fyItem('bad','!','VP-184 is blocked: a requester can approve their own change', 'OBL-02 (BR-017) violated on '+hash+'. Expected HTTP 403, observed HTTP 200.', 'See the evidence', 'vp-ev02', true));
     else if(d==='INDETERMINATE') items.push(fyItem('warn','?','VP-184 · your fix works; a business decision is pending', 'OBL-02 is now supported on '+hash+'. OBL-03 waits for the Finance Controller.', 'View gaps', 'vp-gaps'));
