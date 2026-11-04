@@ -2093,7 +2093,11 @@ function csvToMemberRows(text){
   return {rows: t.slice(1).map((r,i)=>({ line:i+2, ...Object.fromEntries(['email','name','designation','role','authorities','applications','password'].map(k=>[k, at(k)>=0 ? String(r[at(k)]||'').trim() : ''])) }))};
 }
 const csvCell = v => /[",\r\n]/.test(String(v)) ? `"${String(v).replace(/"/g,'""')}"` : String(v);
+/* Inside the claude.ai viewer, files are offered through its downloads capability; elsewhere, a normal browser download. */
+let DOWNLOADS = null;
+(async () => { try { if (window.claude && typeof window.claude.use === 'function') DOWNLOADS = await window.claude.use('downloads'); } catch (e) { DOWNLOADS = null; } })();
 function downloadText(name, text){
+  if(DOWNLOADS){ DOWNLOADS.save({filename:name, data:text}).catch(e=>{ if(!e || e.code!=='declined') toast('The file could not be saved here. Use Copy instead.'); }); return; }
   try{ const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type:'text/csv;charset=utf-8'})); a.download = name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 500); }
   catch(e){ toast('Download is blocked here. Use Copy instead.'); }
 }
