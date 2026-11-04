@@ -119,6 +119,8 @@ Set `QIVVRA_SESSION_SECRET` so sessions survive restarts.
 | Applications | The applications they work on, or **all applications** (including ones onboarded later) |
 | Initial password | Demo sign-in only; production uses the identity provider (SSO) |
 
+**Bulk: Import CSV / Export CSV.** The Import screen shows the template (columns, rules, sample rows) with **Download template** and **Copy**. Columns: `email, name, designation, role, authorities, applications, password` (authorities and applications separated by `;`, applications by key or name, or `all`). The engine checks every row first and shows a preview: **Add**, **Update** (with exactly what changes), **No change**, or **Error** (with the reason). Only valid rows are imported; members are never removed or deactivated by an import. New members without a password get a generated one, offered once as a download. **Export CSV** writes the current members in the same format.
+
 After signing in, every member sees **one card per application** on Home (changes, NOT READY / READY counts), and only those applications' changes anywhere in QIVVRA. The engine enforces it on every request: removing an application hides its changes on the member's next request, and deactivating a member ends their session at once. Rules: a Platform Admin has no applications or authority (sees no change evidence); the Admin can't deactivate themselves or remove their own Admin role; there's always at least one active Admin. Every change is written to `platform_audit`.
 
 ## Onboarding an application (Admin)
@@ -172,6 +174,7 @@ Every request and answer is also written to the assessment's timeline. The Contr
 | POST | `/api/ui/requests/:id/resolve` | Assurance Lead answers a dispute: `upheld` or `check_changed` |
 | GET | `/api/ui/platform`, `/api/ui/users` | Admin and Assurance Lead; users for Admin only |
 | GET, POST | `/api/ui/members` | List or add members (Admin) |
+| POST | `/api/ui/members/import` | `{ rows, dryRun }`: check (dry run) or apply a CSV import (Admin) |
 | PUT | `/api/ui/members/:email` | Change role, authority, applications, or reset the password (Admin) |
 | POST | `/api/ui/members/:email/status` | `active` or `disabled` (Admin) |
 | GET | `/api/ui/applications` | Every application and where it is defined (Admin, Assurance Lead) |

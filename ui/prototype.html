@@ -1949,7 +1949,7 @@ function membersSection(list, apps){
   return `<div class="card" style="padding:0;margin-bottom:22px" id="members">
     <div style="padding:16px 20px 10px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start"><div><h2 style="margin:0">Members</h2>
       <p class="small muted" style="margin:4px 0 0">${list.filter(m=>m.status==='active').length} active · ${MEM_ROLES.map(r=>`${roleCount(r)} ${r==='Admin'?'Platform Admin':r}`).join(' · ')}. Each member sees only the applications assigned here, as cards on their home screen.</p></div>
-      <button class="btn primary" data-action="mem-add">Add member</button></div>
+      <div class="btnrow"><button class="btn" data-action="mem-export">Export CSV</button><button class="btn" data-action="mem-import">Import CSV</button><button class="btn primary" data-action="mem-add">Add member</button></div></div>
     <div class="toolbar" style="margin:0 20px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <label class="sr-only" for="mem-q">Search members</label><input type="search" id="mem-q" data-mem-filter="q" placeholder="Search name, email or designation" value="${esc(f.q)}" style="flex:1 1 220px;min-width:0;border:1px solid var(--line);border-radius:8px;padding:7px 10px">
       <label class="sr-only" for="mem-role">Role</label><select id="mem-role" class="sel" data-mem-filter="role"><option value="All">All roles</option>${MEM_ROLES.map(r=>`<option value="${r}"${f.role===r?' selected':''}>${r==='Admin'?'Platform Admin':r}</option>`).join('')}</select>
@@ -2046,6 +2046,171 @@ document.addEventListener('click', e => {
       S.platformAudit.unshift({at:fmt(new Date()), who:ME.short, text:`${m.status==='disabled'?'Deactivated':'Reactivated'} member ${m.name}`});
       toast(m.status==='disabled' ? `${m.name} deactivated: they can no longer sign in.` : `${m.name} reactivated.`); render(); } break;
     case 'app-open': S.ccFilter.app = id; go('command'); break;
+  }
+});
+
+/* ---------- Bulk import of members from CSV ---------- */
+const IMP_COLS = [
+  ['email','Required','Work email. An email that is already a member updates that member.'],
+  ['name','Required','Full name.'],
+  ['designation','Required','For example Finance Controller, Tech Lead – Payments.'],
+  ['role','Required','Assurance Lead, Contributor, Viewer or Platform Admin.'],
+  ['authorities','Optional','Finance, Security, Compliance, Platform. Separate several with ;'],
+  ['applications','Required*','Application keys or names separated by ; or all for every application (now and later). Leave empty for a Platform Admin.'],
+  ['password','Optional','Initial password (10+ characters, letters and digits). Empty: QIVVRA generates one for new members. On an existing member it resets the password.'],
+];
+function importTemplate(){
+  const apps = importApps(), k1 = (apps[0]||{key:'vendorpay'}).key, k2 = (apps[1]||apps[0]||{key:'payments'}).key;
+  return ['email,name,designation,role,authorities,applications,password',
+    `d.menon@yourcompany.com,Deepa Menon,"QA Lead, Payments",Contributor,,${k1};${k2},`,
+    `s.rao@yourcompany.com,Suresh Rao,Risk Officer,Viewer,Compliance,all,`,
+    `k.iyer@yourcompany.com,Kavya Iyer,QE Assurance Lead,Assurance Lead,,all,`,
+    `t.singh@yourcompany.com,Tara Singh,IT Administrator,Platform Admin,,,`].join('\r\n') + '\r\n';
+}
+/* RFC 4180: quoted fields, doubled quotes, commas and line breaks inside quotes, CRLF, a leading BOM. */
+function parseCSV(text){
+  const rows = []; let row = [], f = '', q = false, i = 0;
+  text = String(text||'').replace(/^﻿/, '');
+  for(; i<text.length; i++){
+    const c = text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){ f+='"'; i++; } else q = false; } else f += c; }
+    else if(c==='"') q = true;
+    else if(c===','){ row.push(f); f=''; }
+    else if(c==='\n' || c==='\r'){ if(c==='\r' && text[i+1]==='\n') i++; row.push(f); rows.push(row); row=[]; f=''; }
+    else f += c;
+  }
+  if(f!=='' || row.length){ row.push(f); rows.push(row); }
+  return rows.filter(r=>r.some(x=>x.trim()!==''));
+}
+function csvToMemberRows(text){
+  const t = parseCSV(text);
+  if(!t.length) return {error:'The file is empty.'};
+  const head = t[0].map(h=>h.trim().toLowerCase());
+  const missing = ['email','name','designation','role','applications'].filter(h=>!head.includes(h));
+  if(missing.length) return {error:`The first row must be the header. Missing column${missing.length>1?'s':''}: ${missing.join(', ')}. Download the template to start from.`};
+  if(t.length>501) return {error:'Import at most 500 members at a time.'};
+  const at = k => head.indexOf(k);
+  return {rows: t.slice(1).map((r,i)=>({ line:i+2, ...Object.fromEntries(['email','name','designation','role','authorities','applications','password'].map(k=>[k, at(k)>=0 ? String(r[at(k)]||'').trim() : ''])) }))};
+}
+const csvCell = v => /[",\r\n]/.test(String(v)) ? `"${String(v).replace(/"/g,'""')}"` : String(v);
+function downloadText(name, text){
+  try{ const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type:'text/csv;charset=utf-8'})); a.download = name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 500); }
+  catch(e){ toast('Download is blocked here. Use Copy instead.'); }
+}
+function membersCSV(list){
+  const apps = importApps();
+  return ['email,name,designation,role,authorities,applications,status'].concat(list.map(m=>[m.email, m.name, m.designation, m.sysRole==='Admin'?'Platform Admin':m.sysRole, m.authorities.join(';'), m.sysRole==='Admin'?'':m.apps==='all'?'all':m.apps.join(';'), m.status].map(csvCell).join(','))).join('\r\n') + '\r\n';
+}
+const IMP_ACT = {add:['Add','s-Connected'], update:['Update','s-Requires'], unchanged:['No change','s-Available'], error:['Error','s-Error']};
+function importPanel(){
+  const I = S.imp || (S.imp = {stage:'pick', text:'', file:'', result:null, error:''});
+  if(I.stage==='pick') return `
+    <section style="display:flex;flex-direction:column;gap:10px"><h3 style="margin:0;font-size:14px">1. Start from the template</h3>
+      <div class="tbl-wrap"><table><thead><tr><th>Column</th><th></th><th>What to put</th></tr></thead><tbody>${IMP_COLS.map(([c,r,d])=>`<tr><td class="mono small">${c}</td><td class="small${r.startsWith('Required')?'':' muted'}">${r}</td><td class="small">${esc(d)}</td></tr>`).join('')}</tbody></table></div>
+      <p class="small muted" style="margin:0">* Every role except Platform Admin needs at least one application. Applications here: ${importApps().map(a=>`<span class="mono">${esc(a.key)}</span> (${esc(a.name)})`).join(', ')}.</p>
+      <div class="trace" style="margin:0"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2>qivvra-members-template.csv</h2><button class="copy" data-action="imp-copy">Copy</button></div><div class="rows" style="display:block;white-space:pre;overflow-x:auto;font-size:11.5px">${esc(importTemplate())}</div></div>
+      <div class="btnrow"><button class="btn" data-action="imp-template">Download template</button></div></section>
+    <section style="display:flex;flex-direction:column;gap:10px"><h3 style="margin:0;font-size:14px">2. Choose your file</h3>
+      <div class="field"><label for="imp-file">CSV file (UTF-8, up to 500 members)</label><input id="imp-file" type="file" accept=".csv,text/csv" data-imp="file">${I.file?`<span class="small muted">${esc(I.file)}</span>`:''}</div>
+      <div class="field"><label for="imp-text">…or paste the rows</label><textarea id="imp-text" data-imp="text" style="min-height:110px;font-family:var(--mono);font-size:12px" placeholder="email,name,designation,role,authorities,applications,password">${esc(I.text)}</textarea></div>
+      ${I.error?`<div class="notice red" style="margin:0"><span>${esc(I.error)}</span></div>`:''}
+      <div class="btnrow"><button class="btn primary" data-action="imp-check">Check file</button></div>
+      <p class="small muted" style="margin:0">Nothing is saved until you confirm. Members are never removed or deactivated by an import.</p></section>`;
+  const r = I.result, sm = r.summary, apply = sm.add + sm.update;
+  const table = `<div class="tbl-wrap"><table><thead><tr><th>Line</th><th>Member</th><th>Role · applications</th><th>Result</th></tr></thead><tbody>${r.results.map(x=>{ const [w,cls] = IMP_ACT[x.action];
+    const detail = x.action==='error' ? Object.values(x.errors).map(esc).join('<br>') : x.action==='update' ? x.changes.map(esc).join('<br>') : x.action==='add' && x.generated ? (I.stage==='done' ? 'Password generated' : 'A password will be generated') : '';
+    return `<tr><td class="small">${x.line}</td><td><b class="small">${esc(x.name||'—')}</b><div class="mono small muted">${esc(x.email||'—')}</div></td><td class="small">${esc(x.role==='Admin'?'Platform Admin':x.role||'—')}${x.authorities&&x.authorities.length?' · '+x.authorities.map(esc).join(', '):''}<div class="muted">${x.role==='Admin'?'—':x.applications==='all'?'All applications':(x.applications||[]).map(k=>esc((importApps().find(a=>a.key===k)||{name:k}).name)).join(', ')}</div></td>
+      <td class="small"><b class="${cls}">${w}</b>${detail?`<div class="small" style="margin-top:2px">${detail}</div>`:''}</td></tr>`; }).join('')}</tbody></table></div>`;
+  const chips = `<div class="btnrow" style="gap:6px">${['add','update','unchanged','error'].map(k=>`<span class="rchip" style="margin:0">${sm[k]} ${IMP_ACT[k][0].toLowerCase()}</span>`).join('')}</div>`;
+  if(I.stage==='preview') return `<p class="small" style="margin:0"><b>${esc(I.file||'Pasted rows')}</b> · ${r.results.length} row${r.results.length===1?'':'s'} checked. Nothing is saved yet.</p>${chips}${table}
+    ${sm.error?`<div class="notice amber" style="margin:0"><span>${sm.error} row${sm.error===1?' has':'s have'} errors and will be skipped. Fix the file and check again to include ${sm.error===1?'it':'them'}.</span></div>`:''}
+    <div class="btnrow"><button class="btn" data-action="imp-back">Back</button>${apply?`<button class="btn primary" data-action="imp-apply"${I.busy?' disabled':''}>${I.busy?'Importing…':`Import ${apply} member${apply===1?'':'s'}`}</button>`:'<span class="small muted">Nothing to import.</span>'}</div>`;
+  const gen = r.results.filter(x=>x.action==='add' && x.generated);
+  return `<div class="notice" style="margin:0;background:var(--green-tint);border-color:var(--green-line)"><span><b style="color:var(--green-text)">Import complete.</b> ${sm.add} added, ${sm.update} updated${sm.error?`, ${sm.error} skipped`:''}. Each member sees their applications as cards after signing in.</span></div>${chips}
+    ${gen.length?`<div class="notice amber" style="margin:0;display:block"><b>${gen.length} temporary password${gen.length===1?'':'s'} generated.</b> Download them now and hand each one over securely; they are not shown again.<div class="btnrow" style="margin-top:8px"><button class="btn primary" data-action="imp-creds">Download sign-in details</button></div></div>`:''}
+    ${table}<div class="btnrow"><button class="btn" data-action="imp-again">Import another file</button><button class="btn" data-action="close-drawer">Done</button></div>`;
+}
+function importRedraw(){ const b = $('#dr-body'); if(b) b.innerHTML = importPanel(); }
+/* Prototype: simulated import with the same rules the engine applies. */
+function importApps(){ return protoApps(); }
+function importRun(rows, dryRun){
+  const ROLES = {'assurance lead':'Assurance Lead', lead:'Assurance Lead', contributor:'Contributor', viewer:'Viewer', admin:'Admin', 'platform admin':'Admin'};
+  const apps = importApps(), seen = {};
+  const results = rows.map(row=>{
+    const email = String(row.email||'').trim().toLowerCase(), ex = ACCOUNTS.find(a=>a.email===email);
+    const sysRole = ROLES[String(row.role||'').trim().toLowerCase()];
+    const split = v => String(v||'').split(/[;|]/).map(x=>x.trim()).filter(Boolean);
+    const toks = split(row.applications), allApps = toks.some(x=>['all','*'].includes(x.toLowerCase()));
+    const appKeys = toks.filter(x=>!['all','*'].includes(x.toLowerCase())).map(t=>{ const h = apps.find(a=>a.key.toLowerCase()===t.toLowerCase() || a.name.toLowerCase()===t.toLowerCase()); return h ? h.key : t; });
+    const authorities = split(row.authorities).map(x=>MEM_AUTH.find(a=>a.toLowerCase()===x.toLowerCase())||x);
+    const v = {email, name:String(row.name||'').trim(), designation:String(row.designation||'').trim(), sysRole: sysRole||String(row.role||''), authorities: sysRole==='Admin'?[]:authorities, allApps: sysRole!=='Admin' && allApps, apps: sysRole==='Admin'||allApps?[]:appKeys, password:String(row.password||'').trim()};
+    const generate = !ex && !v.password;
+    const e = validateMember({...v, password: generate ? 'Generated1234' : v.password}, !ex, ACCOUNTS.map(a=>a.email));
+    if(!sysRole) e.sysRole = `Role must be Assurance Lead, Contributor, Viewer or Platform Admin (got "${row.role||''}")`;
+    if(sysRole==='Admin' && (authorities.length || allApps || appKeys.length)) e.apps = 'A Platform Admin has no applications or authority';
+    const unknown = v.apps.filter(k=>!apps.some(a=>a.key===k)); if(unknown.length) e.apps = `Not onboarded: ${unknown.join(', ')}`;
+    if(authorities.some(x=>!MEM_AUTH.includes(x))) e.authorities = 'Unknown authority';
+    if(seen[email]) e.email = `Same email as line ${seen[email]}`; if(email) seen[email] = row.line;
+    if(ex && ex.email===ME.email && v.sysRole!=='Admin') e.sysRole = 'You cannot remove your own Admin role';
+    let action = Object.keys(e).length ? 'error' : ex ? 'update' : 'add'; const changes = [];
+    if(action==='update'){
+      const cur = {name:ex.name, designation:ex.role, role:ex.sysRole, authorities:ex.auth.join(';'), applications: ex.apps==='all'?'all':(ex.apps||[]).join(';')};
+      const nxt = {name:v.name, designation:v.designation, role:v.sysRole, authorities:v.authorities.join(';'), applications: v.allApps?'all':v.apps.join(';')};
+      Object.keys(cur).forEach(k=>{ if(cur[k]!==nxt[k]) changes.push(`${k}: ${cur[k]||'—'} → ${nxt[k]||'—'}`); });
+      if(v.password) changes.push('password reset'); if(!changes.length) action = 'unchanged';
+    }
+    return {line:row.line, email, name:v.name, action, errors:e, changes, role:v.sysRole, authorities:v.authorities, applications: v.allApps?'all':v.apps, generated: generate ? (dryRun ? true : 'Qv-' + Math.random().toString(36).slice(2,10) + '7a') : null, v};
+  });
+  const summary = {add:0, update:0, unchanged:0, error:0}; results.forEach(r=>summary[r.action]++);
+  if(!dryRun){
+    results.forEach(r=>{ const v = r.v, nm = v.name.split(/\s+/);
+      const fields = {name:v.name, short: nm.length>1?`${nm[0][0]}. ${nm.slice(1).join(' ')}`:nm[0], initials:nm.map(w=>w[0]).slice(0,2).join('').toUpperCase(), role:v.designation, tagRole:v.designation.split(',')[0].trim(), sysRole:v.sysRole, auth:v.authorities, apps: v.sysRole==='Admin'?[]:(v.allApps?'all':v.apps), job:ROLE_HELP[v.sysRole]};
+      if(r.action==='add') ACCOUNTS.push({email:v.email, status:'active', ...fields, pw: v.password || r.generated});
+      if(r.action==='update'){ const ex = ACCOUNTS.find(a=>a.email===v.email); Object.assign(ex, fields); if(v.password) ex.pw = v.password; } });
+    S.platformAudit.unshift({at:fmt(new Date()), who:ME.short, text:`Imported members: ${summary.add} added, ${summary.update} updated`});
+  }
+  return Promise.resolve({dryRun, summary, results: results.map(({v, ...r})=>r)});
+}
+function exportMembers(){ return ACCOUNTS.map(memberView); }
+function afterImport(){ render(); }
+async function importCheck(){
+  const I = S.imp, ta = $('#imp-text'); if(ta) I.text = ta.value;
+  const parsed = csvToMemberRows(I.text);
+  if(parsed.error){ I.error = parsed.error; return importRedraw(); }
+  if(!parsed.rows.length){ I.error = 'The file has a header but no member rows.'; return importRedraw(); }
+  I.error = ''; I.rows = parsed.rows;
+  const r = await importRun(parsed.rows, true);
+  if(r.error){ I.error = r.error; return importRedraw(); }
+  I.result = r; I.stage = 'preview'; importRedraw();
+}
+async function importApply(){
+  const I = S.imp; I.busy = true; importRedraw();
+  const r = await importRun(I.rows, false); I.busy = false;
+  if(r.error){ I.stage = 'pick'; I.error = r.error; return importRedraw(); }
+  I.result = r; I.stage = 'done'; importRedraw(); afterImport();
+  toast(`Imported: ${r.summary.add} added, ${r.summary.update} updated.`);
+}
+document.addEventListener('change', e => {
+  const el = e.target; if(!el.dataset || el.dataset.imp!=='file' || !el.files || !el.files[0]) return;
+  const f = el.files[0];
+  if(f.size > 1024*1024){ S.imp.error = 'The file is larger than 1 MB.'; return importRedraw(); }
+  const rd = new FileReader();
+  rd.onload = () => { S.imp.text = String(rd.result); S.imp.file = f.name; const ta = $('#imp-text'); if(ta) ta.value = S.imp.text; importCheck(); };
+  rd.readAsText(f);
+});
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-action]'); if(!t) return;
+  switch(t.dataset.action){
+    case 'mem-import': S.imp = {stage:'pick', text:'', file:'', result:null, error:''}; openDrawer('Import members from CSV', 'Add or update many members at once', importPanel()); { const d = $('#drawer-root .drawer'); if(d) d.style.width = 'min(780px,100%)'; } break;
+    case 'imp-template': downloadText('qivvra-members-template.csv', importTemplate()); break;
+    case 'imp-copy': try{ navigator.clipboard.writeText(importTemplate()).then(()=>{ t.textContent='Copied'; setTimeout(()=>t.textContent='Copy',1500); }); }catch(err){ toast('Copy is blocked here. Select the text instead.'); } break;
+    case 'imp-check': importCheck(); break;
+    case 'imp-apply': importApply(); break;
+    case 'imp-back': S.imp.stage = 'pick'; importRedraw(); break;
+    case 'imp-again': S.imp = {stage:'pick', text:'', file:'', result:null, error:''}; importRedraw(); break;
+    case 'imp-creds': { const g = S.imp.result.results.filter(x=>x.action==='add' && x.generated);
+      downloadText('qivvra-new-member-sign-in.csv', ['email,name,temporary_password'].concat(g.map(x=>[x.email, x.name, x.generated].map(csvCell).join(','))).join('\r\n') + '\r\n'); } break;
+    case 'mem-export': downloadText('qivvra-members.csv', membersCSV(exportMembers())); break;
   }
 });
 

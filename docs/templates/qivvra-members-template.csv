@@ -1,0 +1,5 @@
+email,name,designation,role,authorities,applications,password
+d.menon@yourcompany.com,Deepa Menon,"QA Lead, Payments",Contributor,,vendorpay;payments,
+s.rao@yourcompany.com,Suresh Rao,Risk Officer,Viewer,Compliance,all,
+k.iyer@yourcompany.com,Kavya Iyer,QE Assurance Lead,Assurance Lead,,all,
+t.singh@yourcompany.com,Tara Singh,IT Administrator,Platform Admin,,,

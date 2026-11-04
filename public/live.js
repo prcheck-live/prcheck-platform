@@ -523,6 +523,14 @@ function appsTable() {
 async function loadMembers() { const r = await api('/api/ui/members'); if (r.ok) { LIVE.members = r.data.members; LIVE.memberApps = r.data.applications.map(a => ({ key: a.key, name: a.name })); } }
 /* The applications the signed-in member works on, from the engine: one card each on Home. */
 function myApps() { return ((LIVE.access && LIVE.access.applications) || []).map(a => ({ key: a.key, name: a.name, github: a.github, status: a.status })); }
+/* Bulk import: the engine validates every row and applies only the valid ones. */
+function importApps() { return LIVE.memberApps || []; }
+async function importRun(rows, dryRun) {
+  const r = await api('/api/ui/members/import', { method: 'POST', body: { rows, dryRun } });
+  return r.ok ? r.data : { error: r.data.message || `Import failed (HTTP ${r.status}).` };
+}
+function exportMembers() { return LIVE.members || []; }
+function afterImport() { LIVE.members = null; LIVE.users = null; render(); }
 async function saveMember(id) {
   const v = readMemberForm(), creating = id === 'new';
   const e = validateMember(v, creating, (LIVE.members || []).map(m => m.email));
