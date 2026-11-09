@@ -1,0 +1,31 @@
+apiVersion: prcheck/v1
+kind: Policy
+id: CMP-002
+title: Bank change decisions are justified
+version: 1.0.0
+status: approved
+authority: compliance
+owner: "@vendorpay/compliance"
+severity: high
+applies_to:
+  components: [supplier-bank-accounts]
+rule: >
+  A Finance Approver who rejects a supplier's bank account change must say why,
+  and the reason is kept with the request and in the audit trail.
+rationale: Suppliers dispute rejected changes; auditors must see the reason given at the time.
+obligations:
+  - id: CMP-002.1
+    statement: A bank account change cannot be rejected without a reason.
+    evidence: { verifier: V5, check: bank-change-rejection-needs-reason }
+  - id: CMP-002.2
+    statement: The rejection reason is kept on the request and in the audit event.
+    evidence: { verifier: V5, check: bank-change-rejection-reason-recorded }
+on_violated: block
+on_insufficient: block
+exceptions:
+  allowed: true
+  approver_authority: compliance
+  max_days: 30
+  requires: [compensating_control, expiry]
+effective_from: 2026-11-08
+review_by: 2027-11-08

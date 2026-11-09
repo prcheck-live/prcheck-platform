@@ -1,0 +1,44 @@
+# PRCheck.live engine configuration for one Linux machine. setup.sh copies this to
+# ~/prcheck/prcheck.config.yaml and replaces __ORG__. Relative paths resolve from ~/prcheck.
+server:
+  port: 4000
+  public_url: http://localhost:4000          # start.sh overrides this with the tunnel URL
+database_url: postgres://prcheck:prcheck@localhost:5432/prcheck
+evidence_store: data/evidence
+outbox: data/outbox
+
+repositories:
+  vendorpay:
+    app: VendorPay
+    github: __ORG__/vendorpay-app
+    base_branch: main
+    jira_project: VP
+    sources:
+      github: { adapter: api }                                       # uses PRCHECK_GITHUB_TOKEN
+      jira:   { adapter: file, path: repos/prcheck-platform/fixtures/jira }   # switch to { adapter: cloud } when Jira is connected
+      xray:   { adapter: junit, path: team-results, wait_seconds: 600 }      # written by the team CI job on this machine
+    policies:
+      path: repos/vendorpay-policies
+      pull: true                                                     # always assess against the latest approved rules
+    environment:
+      name: qe
+      base_url: http://localhost:3000
+      log_path: qe/app.log
+      wait_for_commit_seconds: 900                                   # the QE deploy runs after the webhook arrives
+    verifiers:
+      adapter: local-playwright
+      path: repos/prcheck-verifiers
+      pull: true
+    functional:
+      adapter: frozen-suites                 # approved agent-generated checks per acceptance criterion
+      path: repos/prcheck-verifiers
+      pull: true
+    team_automation:                                                 # optional, read-only: the agents learn from it; its results never decide
+      path: repos/vendorpay-app
+    imports:                                                         # results from other tools, written by the team's CI: <path>/<commit>/<id>.json
+      adapter: files
+      path: imports
+      wait_seconds: 120
+    channels:                                                        # what the functional and regression lanes test on QE
+      ui:  { url: http://localhost:3000, browsers: [chromium] }
+      api: { base_url: http://localhost:3000/api }

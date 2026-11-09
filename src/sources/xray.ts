@@ -10,7 +10,7 @@ export interface TeamResults {
 
 /**
  * The team's own test results for this commit, as they would be imported into Xray.
- * QIVVRA records them as context. They never decide the disposition: they show
+ * PRCheck.live records them as context. They never decide the disposition: they show
  * what the team checked, which is exactly what the policy gap analysis needs.
  */
 export async function teamResults(repo: RepoConfig, sha: string, jiraProject: string): Promise<TeamResults | null> {
@@ -51,7 +51,7 @@ export async function waitForTeamResults(repo: RepoConfig, sha: string): Promise
 export const XRAY_CLOUD = 'https://xray.cloud.getxray.app';
 /**
  * Convention: the team's CI imports its results for a commit as a Test Execution
- * labelled commit-<7-char sha> (Xray's JUnit import accepts the labels). QIVVRA
+ * labelled commit-<7-char sha> (Xray's JUnit import accepts the labels). PRCheck.live
  * finds that execution with JQL and reads its test runs.
  */
 export const commitLabel = (sha: string) => `commit-${sha.slice(0, 7)}`;

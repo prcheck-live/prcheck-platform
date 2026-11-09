@@ -1,0 +1,42 @@
+# PRCheck.live engine configuration. Paths are relative to this file.
+# Every source has a local adapter (used for demos and tests) and a cloud adapter.
+server:
+  port: 4000
+  public_url: http://localhost:4000
+database_url: postgres://prcheck:prcheck@localhost:5432/prcheck
+evidence_store: data/evidence            # write-once, content-addressed (S3 Object Lock in production)
+outbox: data/outbox                      # where reports go when no GitHub token is configured
+
+repositories:
+  vendorpay:
+    app: VendorPay
+    github: vendorpay/vendorpay-app
+    base_branch: main
+    jira_project: VP
+    sources:
+      github: { adapter: local-git, path: ../vendorpay-app }        # or: { adapter: api } with PRCHECK_GITHUB_TOKEN
+      jira:   { adapter: file, path: fixtures/jira }                 # or: { adapter: cloud } with JIRA_BASE_URL, JIRA_EMAIL, JIRA_TOKEN
+      xray:   { adapter: junit, path: data/team-results }            # <sha>/junit.xml from the team's CI
+    policies:
+      path: ../vendorpay-policies
+    environment:
+      name: qe
+      base_url: http://localhost:3000
+      log_path: data/qe/app.log
+      wait_for_commit_seconds: 120
+    verifiers:
+      adapter: local-playwright                                      # or: github-dispatch
+      path: ../prcheck-verifiers
+    functional:
+      adapter: frozen-suites                                         # or: agent-core (the packaged myDiya agent core)
+      path: ../prcheck-verifiers                                     # functional/suites/<story>.yaml + specs
+      budget_seconds: 600
+    team_automation:                                                 # optional, read-only: the agents learn from it; its results never decide
+      path: ../vendorpay-app
+    imports:                                                         # results from other tools, written by the team's CI: <path>/<commit>/<id>.json
+      adapter: files
+      path: data/imports
+      wait_seconds: 120
+    channels:                                                        # what the functional and regression lanes test on QE
+      ui:  { url: http://localhost:3000, browsers: [chromium] }
+      api: { base_url: http://localhost:3000/api }

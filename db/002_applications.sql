@@ -1,4 +1,4 @@
--- Applications onboarded by an Admin in the UI. Applications in qivvra.config.yaml
+-- Applications onboarded by an Admin in the UI. Applications in prcheck.config.yaml
 -- still work; these are added to them at start-up and whenever an Admin saves one.
 
 CREATE TABLE applications (

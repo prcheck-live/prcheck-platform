@@ -1,0 +1,4 @@
+{
+  "V5/bank-change-rejection-needs-reason": { "file": "V5-bank-change-decisions.spec.ts", "fault": "reject accepts an empty reason (validation removed)" },
+  "V5/bank-change-rejection-reason-recorded": { "file": "V5-bank-change-decisions.spec.ts", "fault": "rejection reason dropped from the audit event" }
+}

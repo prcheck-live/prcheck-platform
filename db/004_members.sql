@@ -1,4 +1,4 @@
--- People who use QIVVRA, managed by the Platform Admin (Integrations → Members).
+-- People who use PRCheck.live, managed by the Platform Admin (Integrations → Members).
 -- Each member has one system role, optional Authority tags, and the applications
 -- they work on. In production, sign-in comes from the identity provider (SSO);
 -- membership, role and applications stay here.

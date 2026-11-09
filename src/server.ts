@@ -38,7 +38,7 @@ app.post('/webhooks/github', express.raw({ type: 'application/json', limit: '5mb
   if (!['opened', 'synchronize', 'reopened', 'ready_for_review'].includes(payload.action)) return res.status(202).json({ ignored: `action ${payload.action}` });
   const repo = repoByGithubName(payload.repository?.full_name ?? '');
   if (!repo) return res.status(202).json({ ignored: `repository ${payload.repository?.full_name} is not onboarded` });
-  if (repo.status === 'paused') return res.status(202).json({ ignored: `${repo.app ?? repo.key} is paused in QIVVRA` });
+  if (repo.status === 'paused') return res.status(202).json({ ignored: `${repo.app ?? repo.key} is paused in PRCheck.live` });
   const pr = payload.pull_request;
   const request = {
     repo, prNumber: pr.number, headSha: String(pr.head.sha), baseRef: pr.base.ref, headRef: pr.head.ref, title: pr.title,
@@ -51,7 +51,7 @@ app.post('/webhooks/github', express.raw({ type: 'application/json', limit: '5mb
 
 /** Signed-in users, or internal tools (CLI, demo scripts) holding the webhook secret. */
 function requireUserOrInternal(req: express.Request, res: express.Response, next: express.NextFunction) {
-  const key = req.header('x-qivvra-key');
+  const key = req.header('x-prcheck-key');
   if (key && process.env.WEBHOOK_SECRET && key.length === process.env.WEBHOOK_SECRET.length &&
       timingSafeEqual(Buffer.from(key), Buffer.from(process.env.WEBHOOK_SECRET))) return next();
   return requireUser(req, res, () => (req.user && access(req.user).scope === 'none'
@@ -112,8 +112,8 @@ app.use(express.static(join(__dirname, '..', 'public'), { index: false }));
 app.get(['/', '/assessments/:id'], (_req, res) => res.type('html').send(UI_HTML));
 
 if (require.main === module) {
-  migrate().then(loadApplications).then(loadMembers).then(() => {
-    app.listen(config.server.port, () => console.log(`QIVVRA engine on ${config.server.public_url}`));
+  migrate().then(loadApplications).then(loadMembers).then(() => import('./agent-missions').then((m) => m.resumeMissions())).then(() => {
+    app.listen(config.server.port, () => console.log(`PRCheck.live engine on ${config.server.public_url}`));
   }).catch((e) => { console.error(e); process.exit(1); });
 }
 export { app };

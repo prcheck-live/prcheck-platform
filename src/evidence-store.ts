@@ -9,7 +9,7 @@ import { pool } from './db';
  * (compliance mode): an object's name is its SHA-256, it is never overwritten,
  * and the database only keeps the digest that points to it.
  */
-export async function put(kind: 'context' | 'evidence' | 'report', content: string): Promise<string> {
+export async function put(kind: 'context' | 'evidence' | 'functional' | 'regression' | 'imported' | 'report', content: string): Promise<string> {
   const hex = createHash('sha256').update(content).digest('hex');
   const digest = `sha256:${hex}`;
   const dir = join(config.evidence_store, hex.slice(0, 2));

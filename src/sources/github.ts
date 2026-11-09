@@ -21,12 +21,12 @@ export async function changedFiles(repo: RepoConfig, base: string, head: string)
   return { files, source: `GitHub compare ${repo.github} ${base}...${head}` };
 }
 
-/** The application's own token (entered at onboarding), else the organisation's (QIVVRA_GITHUB_TOKEN). */
-export const githubToken = (repo?: Pick<RepoConfig, 'secrets'>) => repo?.secrets?.GITHUB_TOKEN || process.env.QIVVRA_GITHUB_TOKEN || '';
+/** The application's own token (entered at onboarding), else the organisation's (PRCHECK_GITHUB_TOKEN). */
+export const githubToken = (repo?: Pick<RepoConfig, 'secrets'>) => repo?.secrets?.GITHUB_TOKEN || process.env.PRCHECK_GITHUB_TOKEN || '';
 
 export async function githubApi(apiPath: string, init: { method?: string; body?: unknown } = {}, repo?: Pick<RepoConfig, 'secrets'>) {
   const token = githubToken(repo);
-  if (!token) throw new Error('No GitHub token: give one for this application, or set QIVVRA_GITHUB_TOKEN for the organisation');
+  if (!token) throw new Error('No GitHub token: give one for this application, or set PRCHECK_GITHUB_TOKEN for the organisation');
   const res = await fetch(`https://api.github.com${apiPath}`, {
     method: init.method ?? 'GET',
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'content-type': 'application/json' },

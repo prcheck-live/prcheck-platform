@@ -20,10 +20,10 @@ jobs:
   deploy-and-test:
     # Never run code from forks on your machine.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, qivvra-qe]
+    runs-on: [self-hosted, prcheck-qe]
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Deploy this commit to QE and run the team's tests
-        run: '"${QIVVRA_HOME:-$HOME/qivvra}/repos/qivvra-platform/deploy/linux-local/qe-deploy.sh" "$GITHUB_WORKSPACE"'
+        run: '"${PRCHECK_HOME:-$HOME/prcheck}/repos/prcheck-platform/deploy/linux-local/qe-deploy.sh" "$GITHUB_WORKSPACE"'

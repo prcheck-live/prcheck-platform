@@ -1,5 +1,5 @@
 /**
- * Members: the people who use QIVVRA, managed by the Platform Admin.
+ * Members: the people who use PRCheck.live, managed by the Platform Admin.
  * Each member has one system role (what they can do), optional Authority tags
  * (which rules they own) and the applications they work on (what they see).
  * Changes apply to the member's very next request, and are written to the platform audit log.
@@ -45,7 +45,7 @@ function validate(b: Input, creating: boolean) {
   if (!SYS_ROLES.includes(sysRole)) errors.sysRole = 'Choose a role';
   if (authorities.some((x) => !AUTHORITIES.includes(x))) errors.authorities = 'Unknown authority';
   if (sysRole === 'Admin') {
-    if (authorities.length) errors.authorities = 'A Platform Admin configures QIVVRA and cannot own rules';
+    if (authorities.length) errors.authorities = 'A Platform Admin configures PRCheck.live and cannot own rules';
     if (allApps || apps.length) errors.apps = 'A Platform Admin sees no change evidence, so has no applications';
   } else {
     const unknown = apps.filter((k) => !config.repositories[k]);
@@ -75,7 +75,7 @@ members.put('/:email', requirePerm('admin'), handle(async (req, res) => {
   if (!m) return res.status(404).json({ error: 'NOT_FOUND' });
   const { errors, value: v } = validate({ ...req.body, email: m.email }, false);
   if (m.email === req.user!.email && v.sysRole !== 'Admin') errors.sysRole = 'You cannot remove your own Admin role';
-  if (m.sysRole === 'Admin' && v.sysRole !== 'Admin' && m.status === 'active' && !activeAdmins(m.email)) errors.sysRole = 'QIVVRA needs at least one active Platform Admin';
+  if (m.sysRole === 'Admin' && v.sysRole !== 'Admin' && m.status === 'active' && !activeAdmins(m.email)) errors.sysRole = 'PRCheck.live needs at least one active Platform Admin';
   if (Object.keys(errors).length) return res.status(422).json({ error: 'INVALID', errors });
   await pool.query(`UPDATE members SET name = $2, designation = $3, sys_role = $4, authorities = $5, all_apps = $6, apps = $7, updated_by = $8, updated_at = now()
     ${v.password ? ', password_hash = $9' : ''} WHERE email = $1`,
@@ -94,7 +94,7 @@ members.post('/:email/status', requirePerm('admin'), handle(async (req, res) => 
   const status = req.body?.status;
   if (!['active', 'disabled'].includes(status)) return res.status(400).json({ error: 'BAD_STATUS' });
   if (status === 'disabled' && m.email === req.user!.email) return res.status(422).json({ error: 'INVALID', message: 'You cannot deactivate yourself' });
-  if (status === 'disabled' && m.sysRole === 'Admin' && !activeAdmins(m.email)) return res.status(422).json({ error: 'INVALID', message: 'QIVVRA needs at least one active Platform Admin' });
+  if (status === 'disabled' && m.sysRole === 'Admin' && !activeAdmins(m.email)) return res.status(422).json({ error: 'INVALID', message: 'PRCheck.live needs at least one active Platform Admin' });
   await pool.query('UPDATE members SET status = $2, updated_by = $3, updated_at = now() WHERE email = $1', [m.email, status, req.user!.email]);
   await audit(req.user!.email, status === 'disabled' ? 'member.deactivated' : 'member.reactivated', m.email);
   await loadMembers();
@@ -156,7 +156,7 @@ members.post('/import', requirePerm('admin'), handle(async (req, res) => {
   // At least one active Admin must remain after the import.
   const demoted = results.filter((r) => r.action === 'update' && r.value.sysRole !== 'Admin' && ACCOUNTS.find((a) => a.email === r.email)?.sysRole === 'Admin').map((r) => r.email);
   if (demoted.length && ACCOUNTS.filter((a) => a.sysRole === 'Admin' && a.status === 'active' && !demoted.includes(a.email)).length + results.filter((r) => r.action === 'add' && r.value.sysRole === 'Admin').length === 0)
-    for (const r of results) if (demoted.includes(r.email)) { r.errors.sysRole = 'QIVVRA needs at least one active Platform Admin'; r.action = 'error'; }
+    for (const r of results) if (demoted.includes(r.email)) { r.errors.sysRole = 'PRCheck.live needs at least one active Platform Admin'; r.action = 'error'; }
 
   const summary = { add: 0, update: 0, unchanged: 0, error: 0 };
   results.forEach((r) => summary[r.action]++);

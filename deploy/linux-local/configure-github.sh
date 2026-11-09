@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Points GitHub at the engine and makes QIVVRA's verdict a merge gate.
+# Points GitHub at the engine and makes PRCheck.live's verdict a merge gate.
 # start.sh calls it with the current tunnel URL; safe to run again any time.
 #   configure-github.sh https://<something>.trycloudflare.com
 set -euo pipefail
-QH=${QIVVRA_HOME:-$HOME/qivvra}
-set -a; . "$QH/qivvra.env"; set +a
+QH=${PRCHECK_HOME:-$HOME/prcheck}
+set -a; . "$QH/prcheck.env"; set +a
 URL=${1:?public engine URL}
 APP="$GH_ORG/vendorpay-app"
 HOOK_URL="$URL/webhooks/github"
@@ -16,12 +16,12 @@ if [ -n "$id" ]; then echo "$body" | gh api -X PATCH "repos/$APP/hooks/$id" --in
 else echo "$body" | gh api -X POST "repos/$APP/hooks" --input - >/dev/null; fi
 echo "ok       webhook $HOOK_URL on $APP"
 
-# vendorpay-app main: QIVVRA's status is required to merge
+# vendorpay-app main: PRCheck.live's status is required to merge
 cat <<'JSON' | gh api -X PUT "repos/$APP/branches/main/protection" --input - >/dev/null
-{ "required_status_checks": { "strict": false, "contexts": ["qivvra/assurance"] },
+{ "required_status_checks": { "strict": false, "contexts": ["prcheck/assurance"] },
   "enforce_admins": false, "required_pull_request_reviews": null, "restrictions": null }
 JSON
-echo "ok       $APP main requires qivvra/assurance"
+echo "ok       $APP main requires prcheck/assurance"
 
 # vendorpay-policies main: valid, and approved by the owning authority (CODEOWNERS)
 cat <<'JSON' | gh api -X PUT "repos/$GH_ORG/vendorpay-policies/branches/main/protection" --input - >/dev/null

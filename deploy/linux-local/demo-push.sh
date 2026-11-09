@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Step 5. The live demo. Each step pushes one commit of the VP-184 change and
-# GitHub, the runner and QIVVRA do the rest. Watch the PR page and the QIVVRA UI.
+# GitHub, the runner and PRCheck.live do the rest. Watch the PR page and the PRCheck.live UI.
 #
 #   demo-push.sh 1      open the PR at commit 1 (two defects)          → expect NOT READY
 #   demo-push.sh 2      push commit 2 (self-approval fixed)            → expect NOT READY
 #   demo-push.sh 3      push commit 3 (scheduled payments held)        → expect READY, merge unblocked
 #   demo-push.sh reset  force the branch back to commit 1 for another run
 set -euo pipefail
-QH=${QIVVRA_HOME:-$HOME/qivvra}
-set -a; . "$QH/qivvra.env"; set +a
+QH=${PRCHECK_HOME:-$HOME/prcheck}
+set -a; . "$QH/prcheck.env"; set +a
 APP="$GH_ORG/vendorpay-app"
 DIR="$QH/repos/vendorpay-app"
 BRANCH=feature/VP-184-bank-change
@@ -41,5 +41,5 @@ esac
 pr=$(gh pr list -R "$APP" --head "$BRANCH" --state open --json number --jq '.[0].number')
 echo
 echo "PR:      https://github.com/$APP/pull/$pr"
-echo "QIVVRA:  ${QIVVRA_PUBLIC_URL:-http://localhost:4000}"
-echo "The runner deploys the commit to QE (about 1-2 minutes), then QIVVRA verifies and posts its verdict."
+echo "PRCheck.live:  ${PRCHECK_PUBLIC_URL:-http://localhost:4000}"
+echo "The runner deploys the commit to QE (about 1-2 minutes), then PRCheck.live verifies and posts its verdict."

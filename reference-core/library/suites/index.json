@@ -1,0 +1,5 @@
+{
+  "VP-184": {
+    "AC3": { "checks": ["F-VP184/AC3-new-account-masked"], "fault": "new account number returned unmasked" }
+  }
+}

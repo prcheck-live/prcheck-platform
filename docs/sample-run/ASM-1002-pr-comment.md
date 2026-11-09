@@ -1,9 +1,9 @@
-<!-- qivvra-assessment -->
-## QIVVRA: NOT READY
+<!-- prcheck-assessment -->
+## PRCheck.live: NOT READY
 
-Commit `ae50deb` · VP-184 "Let Procurement change a supplier's bank account" (5 acceptance criteria)
+Commit `900652c` · VP-184 "Let Procurement change a supplier's bank account" (5 acceptance criteria)
 
-Team tests on this commit: **26/26 passed** (VP-184: 6/6). QIVVRA assessed **14 obligations** from the policy repository: 12 supported, 2 open.
+Team tests on this commit: **26/26 passed** (VP-184: 6/6). PRCheck.live assessed **14 obligations** from the policy repository: 12 supported, 2 open.
 
 ### What blocks this change
 

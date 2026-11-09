@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Step 3. Registers this machine as a self-hosted GitHub Actions runner for
-# <ORG>/vendorpay-app with the label "qivvra-qe". qe-local.yml runs on it.
+# <ORG>/vendorpay-app with the label "prcheck-qe". qe-local.yml runs on it.
 # Needs: gh auth login (as a repo admin).
 set -euo pipefail
-QH=${QIVVRA_HOME:-$HOME/qivvra}
-set -a; . "$QH/qivvra.env"; set +a
+QH=${PRCHECK_HOME:-$HOME/prcheck}
+set -a; . "$QH/prcheck.env"; set +a
 RUNNER="$QH/actions-runner"
 REPO="$GH_ORG/vendorpay-app"
 
@@ -18,9 +18,9 @@ fi
 if [ ! -f "$RUNNER/.runner" ]; then
   token=$(gh api -X POST "repos/$REPO/actions/runners/registration-token" --jq .token)
   (cd "$RUNNER" && ./config.sh --unattended --url "https://github.com/$REPO" --token "$token" \
-     --name "qivvra-qe-$(hostname)" --labels qivvra-qe --work _work --replace)
+     --name "prcheck-qe-$(hostname)" --labels prcheck-qe --work _work --replace)
 fi
 # Only run workflows from branches in this repository, never from forks (also enforced in qe-local.yml).
 gh api -X PUT "repos/$REPO/actions/permissions/fork-pr-contributor-approval" -f approval_policy=all_external_contributors >/dev/null 2>&1 \
   || echo "note     set Settings → Actions → General → 'Require approval for all external contributors' by hand"
-echo "ok       runner registered for $REPO (label qivvra-qe). start.sh runs it."
+echo "ok       runner registered for $REPO (label prcheck-qe). start.sh runs it."

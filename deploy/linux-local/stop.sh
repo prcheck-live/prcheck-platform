@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stops the tunnel, engine, runner and QE app started by start.sh / qe-deploy.sh.
-QH=${QIVVRA_HOME:-$HOME/qivvra}
+QH=${PRCHECK_HOME:-$HOME/prcheck}
 for p in tunnel engine runner; do
   f="$QH/logs/$p.pid"; [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null && echo "stopped  $p"; rm -f "$f"
 done

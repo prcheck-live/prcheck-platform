@@ -10,11 +10,11 @@ export interface EvidenceRecord {
   checks: Record<string, { state: 'SUPPORTED' | 'VIOLATED' | 'NOT_ASSESSED'; reason: string | null; observation: unknown }>;
 }
 
-/** Runs QIVVRA's verifiers against the environment and returns their evidence record. */
+/** Runs PRCheck.live's verifiers against the environment and returns their evidence record. */
 export async function runVerifiers(repo: RepoConfig, assessmentId: string, sha: string): Promise<{ record: EvidenceRecord; raw: string }> {
   if (repo.verifiers.adapter === 'github-dispatch') {
-    // Production path: POST /repos/<verifiers repo>/dispatches {event_type: "qivvra-verify", client_payload}
-    // then collect the "qivvra-evidence-<assessment>" artifact. Not wired in this MVP build.
+    // Production path: POST /repos/<verifiers repo>/dispatches {event_type: "prcheck-verify", client_payload}
+    // then collect the "prcheck-evidence-<assessment>" artifact. Not wired in this MVP build.
     throw new Error('github-dispatch verifier adapter is not wired in this build; use local-playwright');
   }
   if (repo.verifiers.pull) execFileSync('git', [...gitAuth(repo, 'VERIFIERS'), '-C', path(repo.verifiers.path!), 'pull', '--ff-only', '-q'], { stdio: 'ignore' });
@@ -22,7 +22,7 @@ export async function runVerifiers(repo: RepoConfig, assessmentId: string, sha: 
   mkdirSync(outDir, { recursive: true });
   const env = {
     ...process.env,
-    // QIVVRA's test logins for this application, entered by the Admin at onboarding
+    // PRCheck.live's test logins for this application, entered by the Admin at onboarding
     ...Object.fromEntries((repo.verifier_env ?? []).filter((k) => repo.secrets?.[k] !== undefined).map((k) => [k, repo.secrets![k]])),
     BASE_URL: repo.environment.base_url,
     EXPECTED_SHA: sha,

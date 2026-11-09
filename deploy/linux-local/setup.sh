@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # Step 2. Prepares one Linux machine (Ubuntu 22.04/24.04 or Debian 12) to run
-# QE, the QIVVRA engine and a GitHub Actions runner.
+# QE, the PRCheck.live engine and a GitHub Actions runner.
 #
 #   setup.sh                 check prerequisites and set everything up
 #   setup.sh --install       also install missing packages with apt (asks for sudo)
 #
-# Before running: cp qivvra.env.example ~/qivvra/qivvra.env and fill it in.
+# Before running: cp prcheck.env.example ~/prcheck/prcheck.env and fill it in.
 set -euo pipefail
-QH=${QIVVRA_HOME:-$HOME/qivvra}
+QH=${PRCHECK_HOME:-$HOME/prcheck}
 KIT=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$QH"/{repos,qe,team-results,data,logs}
-[ -f "$QH/qivvra.env" ] || { cp "$KIT/qivvra.env.example" "$QH/qivvra.env"; echo "Created $QH/qivvra.env. Fill it in, then run setup.sh again."; exit 1; }
-set -a; . "$QH/qivvra.env"; set +a
-: "${GH_ORG:?GH_ORG missing in qivvra.env}"
+[ -f "$QH/prcheck.env" ] || { cp "$KIT/prcheck.env.example" "$QH/prcheck.env"; echo "Created $QH/prcheck.env. Fill it in, then run setup.sh again."; exit 1; }
+set -a; . "$QH/prcheck.env"; set +a
+: "${GH_ORG:?GH_ORG missing in prcheck.env}"
 
 # 1. Prerequisites
 need=()
@@ -41,26 +41,26 @@ echo "ok       prerequisites (node $(node -v), $(psql --version | head -1))"
 # 2. Databases
 sudo -u postgres psql -qtAc "SELECT 1 FROM pg_roles WHERE rolname='vendorpay'" | grep -q 1 || sudo -u postgres psql -qc "CREATE ROLE vendorpay LOGIN PASSWORD 'vendorpay'"
 sudo -u postgres psql -qtAc "SELECT 1 FROM pg_database WHERE datname='vendorpay'" | grep -q 1 || sudo -u postgres psql -qc "CREATE DATABASE vendorpay OWNER vendorpay"
-sudo -u postgres psql -qtAc "SELECT 1 FROM pg_roles WHERE rolname='qivvra'" | grep -q 1 || sudo -u postgres psql -qc "CREATE ROLE qivvra LOGIN PASSWORD 'qivvra'"
-sudo -u postgres psql -qtAc "SELECT 1 FROM pg_database WHERE datname='qivvra'" | grep -q 1 || sudo -u postgres psql -qc "CREATE DATABASE qivvra OWNER qivvra"
-echo "ok       databases vendorpay and qivvra"
+sudo -u postgres psql -qtAc "SELECT 1 FROM pg_roles WHERE rolname='prcheck'" | grep -q 1 || sudo -u postgres psql -qc "CREATE ROLE prcheck LOGIN PASSWORD 'prcheck'"
+sudo -u postgres psql -qtAc "SELECT 1 FROM pg_database WHERE datname='prcheck'" | grep -q 1 || sudo -u postgres psql -qc "CREATE DATABASE prcheck OWNER prcheck"
+echo "ok       databases vendorpay and prcheck"
 
-# 3. Repositories (QIVVRA's side only; VendorPay is checked out by the runner per commit)
-for r in vendorpay-policies qivvra-verifiers qivvra-platform vendorpay-app; do
+# 3. Repositories (PRCheck.live's side only; VendorPay is checked out by the runner per commit)
+for r in vendorpay-policies prcheck-verifiers prcheck-platform vendorpay-app; do
   if [ -d "$QH/repos/$r/.git" ]; then git -C "$QH/repos/$r" pull -q --ff-only
   else git clone -q "https://github.com/$GH_ORG/$r.git" "$QH/repos/$r"; fi
 done
 (cd "$QH/repos/vendorpay-policies" && npm ci --no-audit --no-fund --loglevel=error && npm run -s validate)
-(cd "$QH/repos/qivvra-verifiers" && npm ci --no-audit --no-fund --loglevel=error && npx playwright install chromium)
-(cd "$QH/repos/qivvra-platform" && npm ci --no-audit --no-fund --loglevel=error && npx tsc -p .)
+(cd "$QH/repos/prcheck-verifiers" && npm ci --no-audit --no-fund --loglevel=error && npx playwright install chromium)
+(cd "$QH/repos/prcheck-platform" && npm ci --no-audit --no-fund --loglevel=error && npx tsc -p .)
 echo "ok       repositories in $QH/repos"
-if [ "${1:-}" = --install ]; then (cd "$QH/repos/qivvra-verifiers" && sudo npx playwright install-deps chromium >/dev/null); echo "ok       Chromium system libraries"
-else echo "note     if Chromium fails to start, run once: (cd $QH/repos/qivvra-verifiers && sudo npx playwright install-deps chromium)"; fi
+if [ "${1:-}" = --install ]; then (cd "$QH/repos/prcheck-verifiers" && sudo npx playwright install-deps chromium >/dev/null); echo "ok       Chromium system libraries"
+else echo "note     if Chromium fails to start, run once: (cd $QH/repos/prcheck-verifiers && sudo npx playwright install-deps chromium)"; fi
 
 # 4. Engine configuration and database
-sed "s#__ORG__#$GH_ORG#g" "$KIT/qivvra.config.yaml" > "$QH/qivvra.config.yaml"
-(cd "$QH/repos/qivvra-platform" && QIVVRA_CONFIG="$QH/qivvra.config.yaml" node dist/migrate.js)
-echo "ok       engine config $QH/qivvra.config.yaml"
+sed "s#__ORG__#$GH_ORG#g" "$KIT/prcheck.config.yaml" > "$QH/prcheck.config.yaml"
+(cd "$QH/repos/prcheck-platform" && PRCHECK_CONFIG="$QH/prcheck.config.yaml" node dist/migrate.js)
+echo "ok       engine config $QH/prcheck.config.yaml"
 
 # 5. First QE deploy: VendorPay main
 "$KIT/qe-deploy.sh" "$QH/repos/vendorpay-app" || true

@@ -1,5 +1,5 @@
 /**
- * API behind the QIVVRA UI. Everything here needs a signed-in user, and every
+ * API behind the PRCheck.live UI. Everything here needs a signed-in user, and every
  * response is filtered by that user's role and application scope on the server.
  */
 import express, { Request, Response, Router } from 'express';
@@ -12,6 +12,7 @@ import { config, path, RepoConfig } from './config';
 import { event, pool } from './db';
 import { get } from './evidence-store';
 import { createAssessment, enqueue } from './pipeline';
+import { suites } from './suites';
 import { applications } from './applications';
 import { members } from './members';
 
@@ -78,11 +79,14 @@ async function changesFor(user: Account, only?: { repository: string; pr: number
     `SELECT * FROM assessments ${only ? 'WHERE repository = $1 AND pr_number = $2' : ''} ORDER BY created_at`, only ? [only.repository, only.pr] : [])).rows;
   const visible = rows.filter((a) => seesApp(user, a.repository));
   const ids = visible.map((a) => a.id);
-  const [obls, events, reqs] = ids.length ? await Promise.all([
+  const [obls, events, reqs, crits, regs, imps] = ids.length ? await Promise.all([
     pool.query('SELECT * FROM obligation_results WHERE assessment_id = ANY($1) ORDER BY obligation_id', [ids]),
     pool.query('SELECT assessment_id, step, message, at FROM assessment_events WHERE assessment_id = ANY($1) ORDER BY id', [ids]),
     pool.query('SELECT * FROM change_requests WHERE assessment_id = ANY($1) ORDER BY created_at', [ids]),
-  ]) : [{ rows: [] }, { rows: [] }, { rows: [] }];
+    pool.query('SELECT * FROM criterion_results WHERE assessment_id = ANY($1) ORDER BY position', [ids]),
+    pool.query('SELECT * FROM regression_results WHERE assessment_id = ANY($1) ORDER BY story, position', [ids]),
+    pool.query('SELECT * FROM imported_results WHERE assessment_id = ANY($1) ORDER BY import_id', [ids]),
+  ]) : [{ rows: [] }, { rows: [] }, { rows: [] }, { rows: [] }, { rows: [] }, { rows: [] }];
 
   const byChange = new Map<string, any>();
   for (const a of visible) {
@@ -94,14 +98,19 @@ async function changesFor(user: Account, only?: { repository: string; pr: number
       catalog: repo ? verifierCatalog(repo) : {}, assessments: [], requests: [] as unknown[],
       sources: repo ? { policies: repo.policies.repository ?? repo.policies.path, verifiers: repo.verifiers.repository ?? repo.verifiers.path } : null,
     });
-    const ctx = loadJson(a.context_digest), ev = loadJson(a.evidence_digest);
+    const ctx = loadJson(a.context_digest), ev = loadJson(a.evidence_digest), fn = loadJson(a.functional_digest);
     const c = ctx.data;
     byChange.get(key).assessments.push({
       id: a.id, status: a.status, disposition: a.disposition, summary: a.summary, error: a.error, trigger: a.triggered_by,
       headSha: a.head_sha, baseRef: a.base_ref, headRef: a.head_ref, title: a.title, jiraKey: a.jira_key,
       createdAt: a.created_at, finishedAt: a.finished_at,
-      digests: { context: a.context_digest, evidence: a.evidence_digest, report: a.report_digest },
-      integrity: { context: ctx.integrity, evidence: ev.integrity },
+      digests: { context: a.context_digest, evidence: a.evidence_digest, functional: a.functional_digest, regression: a.regression_digest, report: a.report_digest },
+      imported: imps.rows.filter((x) => x.assessment_id === a.id).map((x) => ({ id: x.import_id, title: x.title, format: x.format, owner: x.owner, state: x.state, summary: x.summary, gate: x.gate, measured: x.measured, findings: x.findings, digest: x.digest, reason: x.reason })),
+      regression: regs.rows.filter((c) => c.assessment_id === a.id).map((c) => ({ id: c.criterion_id, story: c.story, position: c.position, text: c.text, suiteStatus: c.suite_status, checks: c.checks, state: c.state, reason: c.reason, because: c.selected_because })),
+      integrity: { context: ctx.integrity, evidence: ev.integrity, functional: a.functional_digest ? fn.integrity : 'missing' },
+      lanes: a.lanes && Object.keys(a.lanes).length ? a.lanes : null,
+      functional: fn.data ? { core: fn.data.core, suite: fn.data.suite, suitesCommit: fn.data.suitesCommit, environmentConfirmed: fn.data.environmentConfirmed, checks: fn.data.checks } : null,
+      criteria: crits.rows.filter((c) => c.assessment_id === a.id).map((c) => ({ id: c.criterion_id, story: c.story, position: c.position, text: c.text, textDigest: c.text_digest, suiteStatus: c.suite_status, checks: c.checks, state: c.state, reason: c.reason })),
       context: c ? { files: c.changedFiles?.files ?? [], headCommit: c.headCommit ?? null, jira: c.jira, team: c.teamResults, environment: c.environment, policy: c.policySnapshot } : null,
       evidence: ev.data ? { checks: ev.data.checks, verifierCommit: ev.data.verifiers?.commit ?? null, environmentConfirmed: ev.data.environmentConfirmed, run: ev.data.run, target: ev.data.target } : null,
       obligations: obls.rows.filter((o) => o.assessment_id === a.id),
@@ -120,7 +129,7 @@ async function changesFor(user: Account, only?: { repository: string; pr: number
 }
 
 ui.get('/changes', handle(async (req, res) => {
-  if (access(req.user!).scope === 'none') return res.status(403).json({ error: 'FORBIDDEN', message: 'Admins configure QIVVRA but do not see change evidence' });
+  if (access(req.user!).scope === 'none') return res.status(403).json({ error: 'FORBIDDEN', message: 'Admins configure PRCheck.live but do not see change evidence' });
   res.json({ changes: await changesFor(req.user!), now: new Date().toISOString() });
 }));
 
@@ -165,8 +174,11 @@ ui.post('/assessments/:id/request-rerun', requirePerm('requestRerun'), handle(as
 
 async function openFinding(req: Request, res: Response) {
   const a = await visibleAssessment(req, res); if (!a) return null;
-  const o = (await pool.query('SELECT obligation_id, state FROM obligation_results WHERE assessment_id = $1 AND obligation_id = $2', [a.id, req.params.obl])).rows[0];
-  if (!o) { res.status(404).json({ error: 'NOT_FOUND', message: `No obligation ${req.params.obl} in ${a.id}` }); return null; }
+  // A finding is a policy obligation or an acceptance criterion (functional lane) that is not supported.
+  const o = (await pool.query(`SELECT obligation_id, state FROM obligation_results WHERE assessment_id = $1 AND obligation_id = $2
+    UNION ALL SELECT criterion_id, state FROM criterion_results WHERE assessment_id = $1 AND criterion_id = $2
+    UNION ALL SELECT criterion_id, state FROM regression_results WHERE assessment_id = $1 AND criterion_id = $2`, [a.id, req.params.obl])).rows[0];
+  if (!o) { res.status(404).json({ error: 'NOT_FOUND', message: `No obligation or acceptance criterion ${req.params.obl} in ${a.id}` }); return null; }
   if (o.state === 'SUPPORTED') { res.status(400).json({ error: 'NOT_A_FINDING', message: `${o.obligation_id} is supported; there is nothing to acknowledge or dispute` }); return null; }
   return a;
 }
@@ -238,17 +250,26 @@ ui.get('/platform', requirePerm('platform'), handle(async (_req, res) => {
       policyRepo: { path: r.policies.path, commit: gitCommit(polDir), policies, profile, exceptions },
       verifiers: { adapter: r.verifiers.adapter, commit: verDir ? gitCommit(verDir) : null, catalog: verifierCatalog(r) },
       assessments: { count: last.n, lastAt: last.at }, webhooks: { count: webhook.n, lastAt: webhook.at },
+      functional: r.functional ? (() => {
+        const dir = path(r.functional!.path ?? r.verifiers.path!), mdir = join(dir, 'functional', 'suites');
+        const suites = existsSync(mdir) ? readdirSync(mdir).filter((n) => /\.ya?ml$/.test(n)).map((n) => { try { const m = parse(readFileSync(join(mdir, n), 'utf8'));
+          const c = m.criteria ?? []; return { story: m.story, criteria: c.length, approved: c.filter((x: any) => x.status === 'approved').length, approvedBy: m.approved_by ?? null, core: m.generated_by ?? null }; } catch { return null; } }).filter(Boolean) : [];
+        return { adapter: r.functional!.adapter, repository: r.functional!.repository ?? r.functional!.path, commit: gitCommit(dir), coreVersion: r.functional!.core_version ?? null, budget: r.functional!.budget_seconds ?? 600, suites };
+      })() : null,
+      team: r.team_automation ? { repository: r.team_automation.repository ?? r.team_automation.path } : null,
+      channels: r.channels ?? null,
     };
   }));
   const evidence = (await pool.query('SELECT count(*)::int AS n, coalesce(sum(bytes),0)::bigint AS b FROM evidence_objects')).rows[0];
   res.json({
-    engine: { publicUrl: config.server.public_url, webhookUrl: `${config.server.public_url}/webhooks/github`, reporting: process.env.QIVVRA_GITHUB_TOKEN ? 'GitHub API' : 'Outbox (no token)', engineCommit: gitCommit(config.root) },
+    engine: { publicUrl: config.server.public_url, webhookUrl: `${config.server.public_url}/webhooks/github`, reporting: process.env.PRCHECK_GITHUB_TOKEN ? 'GitHub API' : 'Outbox (no token)', engineCommit: gitCommit(config.root) },
     evidence: { objects: evidence.n, bytes: Number(evidence.b), store: config.evidence_store },
     repos,
   });
 }));
 
 ui.use('/applications', applications);
+ui.use('/suites', suites);
 
 ui.use('/members', members);
 ui.get('/users', requirePerm('admin'), (_req, res) => res.json({ users: ACCOUNTS.map(publicAccount) }));

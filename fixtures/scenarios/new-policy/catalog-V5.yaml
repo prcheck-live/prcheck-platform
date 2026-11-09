@@ -1,0 +1,2 @@
+bank-change-rejection-needs-reason: Rejecting a bank change without a reason gets 422 and leaves the request open.
+bank-change-rejection-reason-recorded: A rejected bank change keeps its reason on the request and in the BANK_CHANGE_REJECTED audit event.

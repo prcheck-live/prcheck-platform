@@ -1,4 +1,4 @@
--- QIVVRA evidence index. The evidence itself lives in the write-once store;
+-- PRCheck.live evidence index. The evidence itself lives in the write-once store;
 -- these tables hold what was decided, from what, and the digests that prove it.
 
 CREATE TABLE assessments (

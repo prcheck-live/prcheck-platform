@@ -1,5 +1,5 @@
 /**
- * Sign-in and role-based access for the QIVVRA UI.
+ * Sign-in and role-based access for the PRCheck.live UI.
  *
  * Members live in the database and are managed by the Platform Admin. Every rule
  * here is enforced on the server: hiding a button in the UI is a convenience, never
@@ -23,14 +23,14 @@ export interface Account {
 
 /** The demo members, created the first time the engine starts with an empty members table. */
 const SEED: Array<Omit<Account, 'short' | 'initials' | 'tagRole' | 'job' | 'status'> & { job: string }> = [
-  { email: 'a.rao@qivvra.demo', name: 'Anika Rao', role: 'QE / Assurance Lead', sysRole: 'Assurance Lead', auth: [], apps: 'all', job: 'Runs assurance, chases gaps, explains blocks' },
-  { email: 'r.das@qivvra.demo', name: 'Rohan Das', role: 'Tech Lead, VendorPay', sysRole: 'Contributor', auth: [], apps: ['vendorpay'], job: 'Sees exactly what failed and fixes it' },
-  { email: 'm.iyer@qivvra.demo', name: 'Meera Iyer', role: 'Finance Controller', sysRole: 'Viewer', auth: ['Finance'], apps: 'all', job: 'Owns finance rules and exceptions' },
-  { email: 's.qureshi@qivvra.demo', name: 'Sana Qureshi', role: 'Security Architect', sysRole: 'Contributor', auth: ['Security'], apps: 'all', job: 'Reviews security obligations and evidence' },
-  { email: 'k.shah@qivvra.demo', name: 'Karan Shah', role: 'Release Manager', sysRole: 'Viewer', auth: [], apps: 'all', job: 'Knows what can ship, and its limits' },
-  { email: 'v.bose@qivvra.demo', name: 'Vikram Bose', role: 'Compliance Officer', sysRole: 'Viewer', auth: ['Compliance'], apps: 'all', job: 'Owns audit-trail rules and compliance exceptions' },
-  { email: 'a.pillai@qivvra.demo', name: 'Arjun Pillai', role: 'Platform Engineering Lead', sysRole: 'Contributor', auth: ['Platform'], apps: 'all', job: 'Owns build, deploy and environment rules' },
-  { email: 'p.nair@qivvra.demo', name: 'Priya Nair', role: 'Platform Admin', sysRole: 'Admin', auth: [], apps: [], job: 'Connects tools, manages users and profiles' },
+  { email: 'a.rao@prcheck.demo', name: 'Anika Rao', role: 'QE / Assurance Lead', sysRole: 'Assurance Lead', auth: [], apps: 'all', job: 'Runs assurance, chases gaps, explains blocks' },
+  { email: 'r.das@prcheck.demo', name: 'Rohan Das', role: 'Tech Lead, VendorPay', sysRole: 'Contributor', auth: [], apps: ['vendorpay'], job: 'Sees exactly what failed and fixes it' },
+  { email: 'm.iyer@prcheck.demo', name: 'Meera Iyer', role: 'Finance Controller', sysRole: 'Viewer', auth: ['Finance'], apps: 'all', job: 'Owns finance rules and exceptions' },
+  { email: 's.qureshi@prcheck.demo', name: 'Sana Qureshi', role: 'Security Architect', sysRole: 'Contributor', auth: ['Security'], apps: 'all', job: 'Reviews security obligations and evidence' },
+  { email: 'k.shah@prcheck.demo', name: 'Karan Shah', role: 'Release Manager', sysRole: 'Viewer', auth: [], apps: 'all', job: 'Knows what can ship, and its limits' },
+  { email: 'v.bose@prcheck.demo', name: 'Vikram Bose', role: 'Compliance Officer', sysRole: 'Viewer', auth: ['Compliance'], apps: 'all', job: 'Owns audit-trail rules and compliance exceptions' },
+  { email: 'a.pillai@prcheck.demo', name: 'Arjun Pillai', role: 'Platform Engineering Lead', sysRole: 'Contributor', auth: ['Platform'], apps: 'all', job: 'Owns build, deploy and environment rules' },
+  { email: 'p.nair@prcheck.demo', name: 'Priya Nair', role: 'Platform Admin', sysRole: 'Admin', auth: [], apps: [], job: 'Connects tools, manages users and profiles' },
 ];
 
 /** What each role is for, shown next to a member. */
@@ -72,7 +72,7 @@ export async function loadMembers() {
   const { pool } = await import('./db');
   const n = (await pool.query('SELECT count(*)::int AS n FROM members')).rows[0].n;
   if (!n) {
-    const demo = hashPassword(process.env.QIVVRA_DEMO_PASSWORD ?? 'Qivvra@2026');
+    const demo = hashPassword(process.env.PRCHECK_DEMO_PASSWORD ?? 'PRCheck@2026');
     for (const m of SEED) await pool.query(`INSERT INTO members (email, name, designation, sys_role, authorities, all_apps, apps, password_hash, created_by, updated_by)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'seed','seed')`, [m.email, m.name, m.role, m.sysRole, m.auth, m.apps === 'all', m.apps === 'all' ? [] : m.apps, demo]);
     console.log(`created ${SEED.length} demo members`);
@@ -82,7 +82,7 @@ export async function loadMembers() {
 }
 
 // Demo second factor until the identity provider is connected.
-const DEMO_CODE = process.env.QIVVRA_DEMO_CODE ?? '246810';
+const DEMO_CODE = process.env.PRCHECK_DEMO_CODE ?? '246810';
 const findActive = (email: string) => ACCOUNTS.find((a) => a.email === String(email).trim().toLowerCase() && a.status === 'active');
 
 export function checkCredentials(email: string, password: string, code: string): Account | null {
@@ -101,7 +101,7 @@ export const CHANGE_ROUTES = ['command', 'change', 'revisions', 'graph', 'obliga
 export function access(a: Account): { routes: string[]; scope: 'none' | 'all' | string[] } {
   const scope = a.sysRole === 'Admin' ? 'none' : a.apps === 'all' ? 'all' : a.apps;
   if (a.sysRole === 'Admin') return { routes: ['home', 'integrations', 'onboard', 'profiles', 'org-settings'], scope };
-  if (a.sysRole === 'Assurance Lead') return { routes: ['home', ...CHANGE_ROUTES, 'integrations', 'profiles', 'org-settings'], scope };
+  if (a.sysRole === 'Assurance Lead') return { routes: ['home', ...CHANGE_ROUTES, 'suites', 'integrations', 'profiles', 'org-settings'], scope };
   return { routes: ['home', ...CHANGE_ROUTES, 'org-settings'], scope };
 }
 export const PERMS: Record<string, SysRole[]> = { run: ['Assurance Lead'], requestRerun: ['Contributor'], admin: ['Admin'], platform: ['Admin', 'Assurance Lead'] };
@@ -110,15 +110,15 @@ export const can = (a: Account, perm: string) => (PERMS[perm] ?? []).includes(a.
 export const seesApp = (a: Account, repoKey: string) => { const s = access(a).scope; return s === 'all' || (Array.isArray(s) && s.includes(repoKey)); };
 
 /* ---------- Session cookie: base64url(payload).hmac ---------- */
-const SECRET = process.env.QIVVRA_SESSION_SECRET ?? randomBytes(32).toString('hex');
-const COOKIE = 'qivvra_session';
+const SECRET = process.env.PRCHECK_SESSION_SECRET ?? randomBytes(32).toString('hex');
+const COOKIE = 'prcheck_session';
 const TTL_HOURS = 12;
 
 export function issueSession(res: Response, a: Account, remember: boolean) {
   const payload = Buffer.from(JSON.stringify({ e: a.email, x: Date.now() + TTL_HOURS * 3600e3 })).toString('base64url');
   const sig = createHmac('sha256', SECRET).update(payload).digest('base64url');
   res.cookie(COOKIE, `${payload}.${sig}`, {
-    httpOnly: true, sameSite: 'lax', secure: process.env.QIVVRA_PUBLIC_URL?.startsWith('https://') ?? false, path: '/',
+    httpOnly: true, sameSite: 'lax', secure: process.env.PRCHECK_PUBLIC_URL?.startsWith('https://') ?? false, path: '/',
     ...(remember ? { maxAge: TTL_HOURS * 3600e3 } : {}),
   });
 }

@@ -1,0 +1,11 @@
+# What the agent core writes into generated/manifest.yaml when it delivers the CMP-002 verifiers.
+- check: V5/bank-change-rejection-needs-reason
+  file: generated/V5-bank-change-decisions.spec.ts
+  status: generated
+  generated_by: { core: mydiya-agent-core, version: 0.1.0-standin, agents: [myClara, myTessa, myGenie] }
+  fault: { seeded: "reject accepts an empty reason (validation removed)", result: FAILED, by: myGenie }
+- check: V5/bank-change-rejection-reason-recorded
+  file: generated/V5-bank-change-decisions.spec.ts
+  status: generated
+  generated_by: { core: mydiya-agent-core, version: 0.1.0-standin, agents: [myClara, myTessa, myGenie] }
+  fault: { seeded: "rejection reason dropped from the audit event", result: FAILED, by: myGenie }

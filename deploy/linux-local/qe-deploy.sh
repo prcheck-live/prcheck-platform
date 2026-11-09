@@ -5,13 +5,13 @@
 #
 #   qe-deploy.sh <checkout-dir>
 #
-# Writes:  ~/qivvra/qe/releases/<sha>/        the build
-#          ~/qivvra/qe/app.log                the app log (QIVVRA's V4 reads it)
-#          ~/qivvra/team-results/<sha>/junit.xml   the team's results (QIVVRA's Xray input)
+# Writes:  ~/prcheck/qe/releases/<sha>/        the build
+#          ~/prcheck/qe/app.log                the app log (PRCheck.live's V4 reads it)
+#          ~/prcheck/team-results/<sha>/junit.xml   the team's results (PRCheck.live's Xray input)
 set -euo pipefail
 SRC=$(cd "${1:?checkout dir}" && pwd)
-QH=${QIVVRA_HOME:-$HOME/qivvra}
-[ -f "$QH/qivvra.env" ] && set -a && . "$QH/qivvra.env" && set +a
+QH=${PRCHECK_HOME:-$HOME/prcheck}
+[ -f "$QH/prcheck.env" ] && set -a && . "$QH/prcheck.env" && set +a
 DB=${VENDORPAY_DATABASE_URL:-postgres://vendorpay:vendorpay@localhost:5432/vendorpay}
 SHA=$(git -C "$SRC" rev-parse --short=7 HEAD)
 REL="$QH/qe/releases/$SHA"
@@ -41,7 +41,7 @@ RUNNING=$(curl -fs http://localhost:3000/version | sed -E 's/.*"gitSha":"([^"]*)
 [ "$RUNNING" = "$SHA" ] || { echo "QE reports $RUNNING, expected $SHA"; exit 1; }
 echo "QE now runs $SHA"
 
-# 3. The team's own tests against QE, saved for QIVVRA as the Xray input
+# 3. The team's own tests against QE, saved for PRCheck.live as the Xray input
 rc=0
 BASE_URL=http://localhost:3000 npx playwright test || rc=$?
 mkdir -p "$QH/team-results/$SHA"
